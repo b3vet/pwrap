@@ -70,11 +70,11 @@ Some further expectations:
 
 ## Test coverage
 
-Coverage is uneven, and honestly so: `crypto`, `keys`, `auth`, `migrations`,
-`neon` and `telemetry` have unit tests, and the testcontainers suite in
-`internal/integration` exercises the full stack. Several packages —
-`projects`, `branches`, `realtime`, `sqlapply`, `authsetup` — have no unit tests
-of their own and are covered only indirectly.
+Coverage is uneven, and honestly so: `crypto`, `keys`, `auth`, `authjwt`,
+`tenancy`, `migrations`, `neon` and `telemetry` have unit tests, and the
+testcontainers suite in `internal/integration` exercises the full stack. Several
+packages — `projects`, `branches`, `realtime`, `sqlapply`, `authsetup` — have no
+unit tests of their own and are covered only indirectly.
 
 Tests for those are welcome and are the most useful contribution right now.
 
