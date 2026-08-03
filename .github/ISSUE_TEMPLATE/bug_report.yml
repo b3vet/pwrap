@@ -1,0 +1,71 @@
+name: Bug report
+description: Something doesn't work the way it's documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        pwrap is pre-alpha — thanks for taking the time to file this properly.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Ideally the shortest sequence of `pwrap` commands or SDK calls that shows
+        the problem. If it only reproduces against a specific Postgres setup, say so.
+      placeholder: |
+        1. pwrap project create --name repro
+        2. pwrap migrate apply --project <id>
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - pwrapd (control plane)
+        - pwrap (CLI)
+        - Go SDK
+        - TypeScript SDK
+        - Python SDK
+        - Migrations / SQL
+        - Realtime
+        - PostgREST / REST tokens
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: pwrap version or commit
+      placeholder: "v0.1.0, or a commit SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: postgres
+    attributes:
+      label: Postgres version and host
+      placeholder: "16.4, local docker-compose / Neon / RDS"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: pwrapd output or SDK errors. Redact DSNs, API keys and JWTs.
+      render: shell

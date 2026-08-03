@@ -226,17 +226,33 @@ const c = await PwrapClient.connect({
 
 ## Roadmap
 
-Neon branching automation, Python SDK, hosted SaaS console, batch SDK APIs (`InsertMany` / `UpsertMany`), declarative typed-schema API, SDK DSN auto-refresh.
+- **Rotating DSN credentials** — make `/v1/connection` genuinely short-lived, with server-side expiry and revocation. See the credential note above.
+- **SDK parity** — `withUser` and `matview` in TypeScript; `subscribe` and `matview` in Python.
+- **Scoped admin credentials** — replace the single `PWRAP_BOOTSTRAP_TOKEN` with scoped tokens and an audit trail.
+- **SDK DSN auto-refresh** — re-exchange the API key on expiry instead of caching until it fails.
+- **Declarative typed-schema API** — define tables in the SDK instead of via `sql apply`.
+- **Hosted SaaS console.**
 
 ## Development
 
 ```bash
+make help       # list every target
 make test       # unit tests
-make lint       # golangci-lint
+make lint       # golangci-lint v2
 make e2e        # end-to-end dogfood
+make test-integration        # testcontainers suite (needs Docker)
 cd sdk/ts && pnpm run build  # build TS SDK
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for repository layout, expectations, and where help is most useful.
+
+## Project
+
+- [CHANGELOG.md](CHANGELOG.md) — release notes and known limitations
+- [SECURITY.md](SECURITY.md) — trust model, production checklist, how to report a vulnerability
+- [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and contribution guide
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
 ## License
 
-Apache 2.0.
+Apache 2.0 — see [LICENSE](LICENSE).
