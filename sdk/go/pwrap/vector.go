@@ -15,9 +15,9 @@ const VectorDim = 1536
 // Match is a single nearest-neighbour result.
 // Distance is cosine distance (1 - cosine similarity); lower is closer.
 type Match struct {
-	DocID     string         `json:"doc_id"`
-	Metadata  map[string]any `json:"metadata"`
-	Distance  float32        `json:"distance"`
+	DocID    string         `json:"doc_id"`
+	Metadata map[string]any `json:"metadata"`
+	Distance float32        `json:"distance"`
 }
 
 // Vector is a handle over a named pgvector collection.

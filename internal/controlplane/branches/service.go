@@ -103,8 +103,8 @@ func (s *Service) Create(ctx context.Context, parentID uuid.UUID, opts CreateOpt
 // the child are NOT cleared first — use TruncateBeforeCopy to wipe-and-replace. Skips
 // tables that don't exist in BOTH schemas.
 type SyncOpts struct {
-	Tables              []string
-	TruncateBeforeCopy  bool
+	Tables             []string
+	TruncateBeforeCopy bool
 }
 
 // Sync copies data from parent to an existing branch.

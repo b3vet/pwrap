@@ -33,10 +33,10 @@ type Entry struct {
 
 // Status reports what's been applied and what's available.
 type Status struct {
-	Current   string  `json:"current"`   // latest applied version, "" if none
-	Target    string  `json:"target"`    // latest available version
-	UpToDate  bool    `json:"up_to_date"`
-	Log       []Entry `json:"log"`
+	Current  string  `json:"current"` // latest applied version, "" if none
+	Target   string  `json:"target"`  // latest available version
+	UpToDate bool    `json:"up_to_date"`
+	Log      []Entry `json:"log"`
 }
 
 type Runner struct {

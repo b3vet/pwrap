@@ -48,7 +48,10 @@ func run() error {
 	if err := admin.do(ctx, http.MethodPost, "/v1/projects", map[string]string{"name": name}, &proj); err != nil {
 		return err
 	}
-	defer admin.do(context.Background(), http.MethodDelete, "/v1/projects/"+proj.ID.String(), nil, nil)
+	defer func() {
+		// Best-effort teardown; the smoke test's exit status shouldn't hinge on it.
+		_ = admin.do(context.Background(), http.MethodDelete, "/v1/projects/"+proj.ID.String(), nil, nil)
+	}()
 	if err := admin.do(ctx, http.MethodPost, "/v1/projects/"+proj.ID.String()+"/migrations", nil, nil); err != nil {
 		return err
 	}
@@ -113,7 +116,10 @@ func envOr(k, def string) string {
 	return def
 }
 
-type admin struct{ base, token string; http *http.Client }
+type admin struct {
+	base, token string
+	http        *http.Client
+}
 
 func newAdmin(base, token string) *admin {
 	return &admin{base: strings.TrimRight(base, "/"), token: token, http: &http.Client{Timeout: 30 * time.Second}}

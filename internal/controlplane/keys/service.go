@@ -108,10 +108,10 @@ func (s *Service) Verify(ctx context.Context, plaintext string) (projectID, keyI
 		return uuid.Nil, uuid.Nil, err
 	}
 	var (
-		id, pid    uuid.UUID
-		hash       string
-		revokedAt  *time.Time
-		expiresAt  *time.Time
+		id, pid   uuid.UUID
+		hash      string
+		revokedAt *time.Time
+		expiresAt *time.Time
 	)
 	err = s.pool.QueryRow(ctx, `
 		SELECT id, project_id, hash, revoked_at, expires_at

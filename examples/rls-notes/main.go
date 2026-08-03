@@ -1,10 +1,10 @@
 // rls-notes proves that a single RLS policy on pwrap_documents enforces per-user
 // isolation across both access paths pwrap exposes:
 //
-//   1. Via the Go SDK: Client.WithUser(userID) wraps Table ops in a tx that sets
-//      request.jwt.claims.user_id, so the policy USING/WITH CHECK clause matches.
-//   2. Via PostgREST: the JWT from /v1/rest/token carries user_id as a claim, which
-//      PostgREST forwards into request.jwt.claims automatically.
+//  1. Via the Go SDK: Client.WithUser(userID) wraps Table ops in a tx that sets
+//     request.jwt.claims.user_id, so the policy USING/WITH CHECK clause matches.
+//  2. Via PostgREST: the JWT from /v1/rest/token carries user_id as a claim, which
+//     PostgREST forwards into request.jwt.claims automatically.
 //
 // The test flow:
 //   - Create project + issue key + apply pwrap migrations.

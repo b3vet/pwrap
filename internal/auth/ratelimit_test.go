@@ -71,11 +71,11 @@ func TestRateLimit_Middleware429(t *testing.T) {
 
 func TestBearerKey_Prefix(t *testing.T) {
 	cases := map[string]string{
-		"":                              "",
-		"Bearer ":                       "",
-		"NotBearer xyz":                 "",
-		"Bearer short":                  "short",
-		"Bearer 0123456789abcdefXYZ":    "0123456789abcdef",
+		"":                           "",
+		"Bearer ":                    "",
+		"NotBearer xyz":              "",
+		"Bearer short":               "short",
+		"Bearer 0123456789abcdefXYZ": "0123456789abcdef",
 	}
 	for h, want := range cases {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)

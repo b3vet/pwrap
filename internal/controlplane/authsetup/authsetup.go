@@ -2,12 +2,12 @@
 // in-DB PostgREST config that tells PostgREST which tenant schemas to expose.
 //
 // Flow:
-//   1. On pwrapd startup, EnsureRoles creates pwrap_anon + pwrap_authenticator
-//      (idempotent) and stores the JWT secret as a role-level setting that
-//      PostgREST reads via `db-config = true`.
-//   2. On project create, GrantTenant + RebuildSchemasList keeps the schema list
-//      in sync and NOTIFYs PostgREST to reload.
-//   3. On project delete, RevokeTenant + RebuildSchemasList does the reverse.
+//  1. On pwrapd startup, EnsureRoles creates pwrap_anon + pwrap_authenticator
+//     (idempotent) and stores the JWT secret as a role-level setting that
+//     PostgREST reads via `db-config = true`.
+//  2. On project create, GrantTenant + RebuildSchemasList keeps the schema list
+//     in sync and NOTIFYs PostgREST to reload.
+//  3. On project delete, RevokeTenant + RebuildSchemasList does the reverse.
 package authsetup
 
 import (

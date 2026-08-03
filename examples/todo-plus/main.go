@@ -1,17 +1,18 @@
 // todo-plus is the pwrap dogfood demo.
 //
 // It exercises all three MVP pillars in one flow:
-//   1. Control plane: create a project, issue an API key, apply migrations.
-//   2. Table (JSONB): insert a handful of notes.
-//   3. Queue (River): enqueue one "embed" job per note.
-//   4. Vector (pgvector): the worker computes a (fake) embedding and upserts it.
-//   5. Search: pick a query, return top-k nearest notes.
+//  1. Control plane: create a project, issue an API key, apply migrations.
+//  2. Table (JSONB): insert a handful of notes.
+//  3. Queue (River): enqueue one "embed" job per note.
+//  4. Vector (pgvector): the worker computes a (fake) embedding and upserts it.
+//  5. Search: pick a query, return top-k nearest notes.
 //
 // Env:
-//   PWRAP_CONTROL_URL      (default http://localhost:8080)
-//   PWRAP_BOOTSTRAP_TOKEN  required — admin token for pwrapd
-//   TODO_PLUS_PROJECT      optional — reuse a project slug instead of creating one
-//   TODO_PLUS_KEEP=1       don't delete the project at the end
+//
+//	PWRAP_CONTROL_URL      (default http://localhost:8080)
+//	PWRAP_BOOTSTRAP_TOKEN  required — admin token for pwrapd
+//	TODO_PLUS_PROJECT      optional — reuse a project slug instead of creating one
+//	TODO_PLUS_KEEP=1       don't delete the project at the end
 package main
 
 import (

@@ -382,7 +382,9 @@ func TestReencryptAll_BackfillsLegacyPlaintext(t *testing.T) {
 func mustIssueKey(ctx context.Context, t *testing.T, projectID uuid.UUID) string {
 	t.Helper()
 	a := newAdmin()
-	var k struct{ Key string `json:"key"` }
+	var k struct {
+		Key string `json:"key"`
+	}
 	if err := a.do(ctx, http.MethodPost, "/v1/projects/"+projectID.String()+"/keys", map[string]string{"name": "extra"}, &k); err != nil {
 		t.Fatalf("issue key: %v", err)
 	}

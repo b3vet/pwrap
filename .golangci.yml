@@ -1,32 +1,48 @@
+version: "2"
+
 run:
-  timeout: 3m
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
+    - bodyclose
     - errcheck
-    - gosimple
+    - gocritic
     - govet
     - ineffassign
-    - staticcheck
-    - unused
-    - bodyclose
-    - gocritic
     - misspell
     - revive
+    - staticcheck
     - unconvert
-
-linters-settings:
-  revive:
+    - unused
+  settings:
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: exported
-        disabled: true
-  gocritic:
-    disabled-checks:
-      - ifElseChain
+      - path: _test\.go
+        linters: [bodyclose]
+    paths:
+      - third_party$
+      - builtin$
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters: [bodyclose]
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$

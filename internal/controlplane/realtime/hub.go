@@ -2,15 +2,15 @@
 //
 // Architecture:
 //
-//   triggers in each tenant schema → pwrap_change_log + pg_notify('pwrap_changes', minimal payload)
-//                              │
-//                              ▼
-//        Hub (one per pwrapd process) LISTENs on pwrap_changes,
-//        fetches the full change row from the right tenant's pwrap_change_log
-//        (using the schema name in the payload), then fans out to filtered Subscribers.
+//	triggers in each tenant schema → pwrap_change_log + pg_notify('pwrap_changes', minimal payload)
+//	                           │
+//	                           ▼
+//	     Hub (one per pwrapd process) LISTENs on pwrap_changes,
+//	     fetches the full change row from the right tenant's pwrap_change_log
+//	     (using the schema name in the payload), then fans out to filtered Subscribers.
 //
-//   Subscribers (one per active WebSocket / SDK Subscribe call) declare
-//   {schema, table, user_id} filters; non-matching events get skipped.
+//	Subscribers (one per active WebSocket / SDK Subscribe call) declare
+//	{schema, table, user_id} filters; non-matching events get skipped.
 //
 // One Hub serves all tenants. Single LISTEN connection on the admin pool.
 package realtime

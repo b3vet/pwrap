@@ -1,14 +1,14 @@
+//go:build ignore
+
 // mock-neon is a tiny stand-in for the Neon control plane, used in local CLI smoke
 // tests of `pwrap neon …`. Boot it and point the CLI at it:
 //
-//   $ go run scripts/mock-neon.go &
-//   $ PWRAP_NEON_API_KEY=anything PWRAP_NEON_BASE_URL=http://localhost:9911 \
-//       ./bin/pwrap neon branch create --neon-project proj-1 --name demo
+//	$ go run scripts/mock-neon.go &
+//	$ PWRAP_NEON_API_KEY=anything PWRAP_NEON_BASE_URL=http://localhost:9911 \
+//	    ./bin/pwrap neon branch create --neon-project proj-1 --name demo
 //
 // The mock honours create/list/delete branches and connection_uri for one canned
 // project ("proj-1"). Don't rely on it for anything beyond verifying CLI plumbing.
-//
-//go:build ignore
 package main
 
 import (

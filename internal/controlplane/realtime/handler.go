@@ -20,12 +20,13 @@ import (
 // for non-browser clients).
 //
 // Query params:
-//   api_key  — required if no Authorization header. Browsers can't set headers
-//              on WebSocket constructors, hence this fallback. Logged at debug
-//              with a prefix only.
-//   table    — optional. Restrict to one table.
-//   user_id  — optional. Restrict to rows whose change carried this jwt user_id
-//              (typical use: pass current end-user id to mirror RLS scoping).
+//
+//	api_key  — required if no Authorization header. Browsers can't set headers
+//	           on WebSocket constructors, hence this fallback. Logged at debug
+//	           with a prefix only.
+//	table    — optional. Restrict to one table.
+//	user_id  — optional. Restrict to rows whose change carried this jwt user_id
+//	           (typical use: pass current end-user id to mirror RLS scoping).
 type Handler struct {
 	hub      *Hub
 	keys     *keys.Service

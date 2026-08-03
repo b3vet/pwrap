@@ -17,8 +17,8 @@ import (
 // (In M2 the underlying role password is stable; the short-lived contract exists so we
 // can swap in rotating creds in later milestones without breaking the SDK.)
 type Connection struct {
-	DSN           string    `json:"dsn"`
-	Schema        string    `json:"schema"`
+	DSN    string `json:"dsn"`
+	Schema string `json:"schema"`
 	// SchemaVersion is the latest migration version applied to the tenant schema.
 	// Empty if `pwrap migrate apply` has never been run for this project. SDKs
 	// compare against their compile-time SchemaVersion constant to refuse a

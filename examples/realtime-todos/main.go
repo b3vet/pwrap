@@ -2,9 +2,9 @@
 //
 // On startup it provisions a fresh project against the local pwrapd, applies
 // migrations, and issues an API key. The browser then:
-//   • fetches the initial todo list from /api/todos (REST)
-//   • opens a WebSocket to pwrapd's /v1/subscribe filtered to pwrap_documents
-//   • re-renders on every INSERT/UPDATE/DELETE event the server pushes
+//   - fetches the initial todo list from /api/todos (REST)
+//   - opens a WebSocket to pwrapd's /v1/subscribe filtered to pwrap_documents
+//   - re-renders on every INSERT/UPDATE/DELETE event the server pushes
 //
 // Open http://localhost:7799 in two tabs. Add a todo in one tab; watch it appear
 // in the other tab instantly, with no polling. (Avoiding port 7000 because macOS

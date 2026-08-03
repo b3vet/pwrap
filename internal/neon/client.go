@@ -54,26 +54,26 @@ func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 // --- types ----------------------------------------------------------------
 
 type Branch struct {
-	ID             string    `json:"id"`
-	ProjectID      string    `json:"project_id"`
-	ParentID       string    `json:"parent_id,omitempty"`
-	ParentLSN      string    `json:"parent_lsn,omitempty"`
-	Name           string    `json:"name"`
-	Default        bool      `json:"default"`
-	Protected      bool      `json:"protected"`
-	CurrentState   string    `json:"current_state"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	LastResetAt    time.Time `json:"last_reset_at,omitempty"`
-	LogicalSize    int64     `json:"logical_size,omitempty"`
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	ParentID     string    `json:"parent_id,omitempty"`
+	ParentLSN    string    `json:"parent_lsn,omitempty"`
+	Name         string    `json:"name"`
+	Default      bool      `json:"default"`
+	Protected    bool      `json:"protected"`
+	CurrentState string    `json:"current_state"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	LastResetAt  time.Time `json:"last_reset_at,omitempty"`
+	LogicalSize  int64     `json:"logical_size,omitempty"`
 }
 
 type Endpoint struct {
-	ID          string `json:"id"`
-	Host        string `json:"host"`
-	BranchID    string `json:"branch_id"`
-	ProjectID   string `json:"project_id"`
-	Type        string `json:"type"`
+	ID           string `json:"id"`
+	Host         string `json:"host"`
+	BranchID     string `json:"branch_id"`
+	ProjectID    string `json:"project_id"`
+	Type         string `json:"type"`
 	CurrentState string `json:"current_state"`
 }
 
@@ -110,7 +110,7 @@ func (c *Client) CreateBranch(ctx context.Context, projectID string, req CreateB
 		return Branch{}, nil, errors.New("projectID is required")
 	}
 	if req.Name == "" {
-		return Branch{}, nil, errors.New("Name is required")
+		return Branch{}, nil, errors.New("name is required")
 	}
 	body := createBranchPayload{}
 	body.Branch.Name = req.Name

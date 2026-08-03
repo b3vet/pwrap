@@ -39,10 +39,10 @@ func TestInit_PrometheusOnly(t *testing.T) {
 
 func TestStripScheme(t *testing.T) {
 	for in, want := range map[string]string{
-		"http://localhost:4318":  "localhost:4318",
-		"https://otel.acme.com":  "otel.acme.com",
-		"localhost:4318":         "localhost:4318",
-		"":                       "",
+		"http://localhost:4318": "localhost:4318",
+		"https://otel.acme.com": "otel.acme.com",
+		"localhost:4318":        "localhost:4318",
+		"":                      "",
 	} {
 		if got := stripScheme(in); got != want {
 			t.Errorf("stripScheme(%q) = %q, want %q", in, got, want)

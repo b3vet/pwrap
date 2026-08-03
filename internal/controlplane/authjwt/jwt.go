@@ -1,10 +1,10 @@
 // Package authjwt issues + verifies HS256 JWTs for pwrap's REST handoff.
 // Claims mirror what PostgREST expects:
 //
-//   role        — the Postgres tenant role to SET ROLE into
-//   project_id  — pwrap project UUID (useful for RLS policies)
-//   user_id     — optional app-level user, echoed into request.jwt.claims
-//   exp, iat    — standard
+//	role        — the Postgres tenant role to SET ROLE into
+//	project_id  — pwrap project UUID (useful for RLS policies)
+//	user_id     — optional app-level user, echoed into request.jwt.claims
+//	exp, iat    — standard
 package authjwt
 
 import (

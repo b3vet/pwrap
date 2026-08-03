@@ -2,9 +2,10 @@
 // Used to sanity-check HNSW latency and GIN scan behaviour under modest load.
 //
 // Env:
-//   PWRAP_CONTROL_URL, PWRAP_BOOTSTRAP_TOKEN  (same as todo-plus)
-//   BENCH_N         number of rows (default 5000)
-//   BENCH_QUERIES   number of search queries (default 100)
+//
+//	PWRAP_CONTROL_URL, PWRAP_BOOTSTRAP_TOKEN  (same as todo-plus)
+//	BENCH_N         number of rows (default 5000)
+//	BENCH_QUERIES   number of search queries (default 100)
 package main
 
 import (

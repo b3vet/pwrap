@@ -17,11 +17,11 @@ import (
 // a Go-side geometry type — callers can decode it with any GeoJSON library, or just
 // inspect the raw map.
 type Feature struct {
-	ID         uuid.UUID      `json:"id"`
-	Geometry   map[string]any `json:"geometry"`
-	Metadata   map[string]any `json:"metadata"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
+	ID        uuid.UUID      `json:"id"`
+	Geometry  map[string]any `json:"geometry"`
+	Metadata  map[string]any `json:"metadata"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 	// DistanceMeters is populated by WithinRadius and Nearest. Zero for plain Find/Get/BBox.
 	DistanceMeters float64 `json:"distance_meters,omitempty"`
 }

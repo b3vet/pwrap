@@ -39,11 +39,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if r.Body != http.NoBody {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
-	child, err := h.svc.Create(r.Context(), parentID, CreateOpts{
-		Name:       req.Name,
-		WithData:   req.WithData,
-		CopyTables: req.CopyTables,
-	})
+	// createReq is field-for-field identical to CreateOpts; the conversion is
+	// checked at compile time, so a drift in either struct breaks the build.
+	child, err := h.svc.Create(r.Context(), parentID, CreateOpts(req))
 	switch {
 	case errors.Is(err, projects.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "parent not found")

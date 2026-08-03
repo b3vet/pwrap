@@ -3,7 +3,7 @@ name = "pwrap"
 version = "0.0.0"
 description = "Python SDK for pwrap — Postgres-backed all-in-one backend."
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [{ name = "Berke Ucvet" }]
 dependencies = [
@@ -19,7 +19,9 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=68"]
+# >=77 for PEP 639 SPDX license expressions; the `license = {text = ...}` table
+# form is deprecated and warns on every build.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
