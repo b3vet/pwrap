@@ -54,7 +54,27 @@ First public release.
   depth.
 - Corrected the Go module path to `github.com/b3vet/pwrap`; the previous path
   pointed at a repository that does not exist, so the SDK could not be fetched.
+- `sql apply` now notifies PostgREST to reload its schema cache. A table created
+  through the escape hatch was invisible over REST — 404 on every request — until
+  an unrelated project create or delete happened to trigger a reload.
+- **TypeScript SDK**: `client.table()` is generic again, so
+  `c.table<T>("name")` type-checks; `PwrapConfig.driver` accepts an async
+  factory, without which the documented Neon edge-runtime setup could not
+  compile; and `@neondatabase/serverless` is no longer bundled into
+  `dist/neon.js` (215 KB → 388 B), restoring it to a genuinely optional
+  dependency.
 - Upgraded CI to golangci-lint v2, which is required for Go 1.25 modules.
+
+### Testing
+
+- The integration suite now runs PostgREST, covering REST tokens, CRUD, GraphQL,
+  RLS and cross-tenant isolation — previously excluded entirely.
+- New coverage for the queue, vector search, materialized views, and a migration
+  down/up round trip. The `.down.sql` files had never been executed.
+- A [cross-SDK conformance suite](conformance/README.md) runs the same scenarios
+  through all three SDKs and fails the build on undeclared parity gaps.
+- A nightly workflow runs the end-to-end demos, a Postgres 16/17 matrix, and a
+  benchmark baseline.
 
 ### Known limitations
 
@@ -63,12 +83,15 @@ First public release.
   does not revoke a DSN already issued. See [SECURITY.md](SECURITY.md).
 - `PWRAP_BOOTSTRAP_TOKEN` is a single unscoped admin credential with no audit trail.
 - `projects`, `branches`, `realtime`, `sqlapply` and `authsetup` have no unit
-  tests; they are covered only by the integration suite.
+  tests of their own; they are covered by the integration and conformance suites
+  rather than directly.
 - Branching copies built-in tables only. User-defined tables need their
   migrations re-run against the branch, then an explicit `sync`.
 - The SDKs are not yet at full parity. Relative to Go: TypeScript lacks
   `withUser` (RLS scoping) and `matview`; Python lacks `subscribe`, `matview`
-  and the change-capture toggles. Both lack `EnableChangeCapture`.
+  and the change-capture toggles. Each gap is recorded in
+  [`conformance/scenarios.json`](conformance/scenarios.json) and printed on every
+  conformance run.
 
 [Unreleased]: https://github.com/b3vet/pwrap/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/b3vet/pwrap/releases/tag/v0.1.0
