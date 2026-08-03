@@ -4,6 +4,11 @@ SHELL := /bin/bash
 BIN := bin
 PKG := github.com/b3vet/pwrap
 
+# Injected into `pwrap version`. Without this the CLI reports its 0.0.0-dev
+# placeholder even in a tagged build.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
+LDFLAGS := -X main.version=$(VERSION)
+
 .PHONY: help
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -16,8 +21,8 @@ tidy: ## go mod tidy in all modules
 .PHONY: build
 build: ## build pwrapd + pwrap + example binaries
 	mkdir -p $(BIN)
-	go build -o $(BIN)/pwrapd          ./cmd/pwrapd
-	go build -o $(BIN)/pwrap           ./cmd/pwrap
+	go build -ldflags "$(LDFLAGS)" -o $(BIN)/pwrapd ./cmd/pwrapd
+	go build -ldflags "$(LDFLAGS)" -o $(BIN)/pwrap  ./cmd/pwrap
 	go build -o $(BIN)/todo-plus       ./examples/todo-plus
 	go build -o $(BIN)/rls-notes       ./examples/rls-notes
 	go build -o $(BIN)/geo-spots       ./examples/geo-spots

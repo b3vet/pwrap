@@ -1,6 +1,6 @@
 {
   "name": "@pwrap/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "TypeScript SDK for pwrap — Postgres-backed all-in-one backend.",
   "license": "Apache-2.0",
   "author": "Berke Ucvet",

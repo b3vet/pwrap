@@ -1,6 +1,6 @@
 [project]
 name = "pwrap"
-version = "0.0.0"
+version = "0.1.0"
 description = "Python SDK for pwrap — Postgres-backed all-in-one backend."
 readme = "README.md"
 license = "Apache-2.0"

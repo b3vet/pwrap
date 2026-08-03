@@ -37,6 +37,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 sdk/py/build/
+sdk/py/dist/
 sdk/py/*.egg-info/
 
 # Docker

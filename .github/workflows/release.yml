@@ -1,0 +1,106 @@
+name: Release
+
+# Fires on a v* tag. Each publish job is independent, so a registry outage in
+# one doesn't block the others — re-run just the failed job.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # Re-run the full matrix against the tagged commit. CI on main is not proof
+  # the tag is good — the tag may point anywhere.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - run: go vet ./...
+      - run: go test ./... -race -count=1
+      - run: |
+          go build ./cmd/pwrapd
+          go build ./cmd/pwrap
+
+  npm:
+    needs: verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/ts
+    permissions:
+      # Required for npm provenance attestation.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: sdk/ts/pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run build
+      - name: Verify package version matches the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $tag != package.json $pkg" >&2
+            exit 1
+          fi
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  pypi:
+    needs: verify
+    runs-on: ubuntu-latest
+    # If you configure the PyPI trusted publisher with an environment name, add
+    # a matching `environment:` key here — otherwise leave it off.
+    permissions:
+      # PyPI trusted publishing (OIDC) — no long-lived API token in secrets.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify package version matches the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(grep -m1 '^version' sdk/py/pyproject.toml | cut -d'"' -f2)"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $tag != pyproject.toml $pkg" >&2
+            exit 1
+          fi
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build sdk/py
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/py/dist
+
+  github-release:
+    needs: [npm, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "See [CHANGELOG.md](https://github.com/b3vet/pwrap/blob/$GITHUB_REF_NAME/CHANGELOG.md)."
