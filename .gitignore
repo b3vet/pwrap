@@ -1,8 +1,11 @@
 # Binaries
+# NOTE: keep these anchored with a leading slash. Unanchored `pwrapd` / `pwrap`
+# match at any depth, which silently excludes cmd/pwrap, cmd/pwrapd,
+# sdk/go/pwrap and sdk/py/pwrap — i.e. most of the source tree.
 /bin/
 /dist/
-pwrapd
-pwrap
+/pwrapd
+/pwrap
 *.exe
 
 # Go
@@ -28,6 +31,13 @@ node_modules/
 sdk/ts/dist/
 sdk/ts/.turbo/
 pnpm-debug.log*
+
+# Python build / test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+sdk/py/build/
+sdk/py/*.egg-info/
 
 # Docker
 .docker-data/
