@@ -47,3 +47,4 @@ sdk/py/*.egg-info/
 conformance/.reports/
 conformance/.venv/
 conformance/ts/node_modules/
+conformance/**/report-*.json

@@ -36,6 +36,31 @@ if [ ${#RUNNERS[@]} -eq 0 ]; then
   RUNNERS=(go ts py)
 fi
 
+# Every long-running command gets a wall clock. A hang that produces no output
+# is the worst failure mode here — it looks identical to slow progress, and on a
+# CI runner it burns the whole job budget before anyone sees a log line.
+RUNNER_TIMEOUT="${PWRAP_RUNNER_TIMEOUT:-300}"
+INSTALL_TIMEOUT="${PWRAP_INSTALL_TIMEOUT:-300}"
+
+# `timeout` is GNU coreutils; macOS has it as gtimeout, or not at all.
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT=timeout
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT=gtimeout
+else
+  TIMEOUT=""
+fi
+# Redirect stdin from /dev/null too: a package manager that decides to prompt
+# should fail, not wait forever for an answer that will never come.
+run_bounded() { # run_bounded <seconds> <cmd...>
+  local secs="$1"; shift
+  if [ -n "$TIMEOUT" ]; then
+    "$TIMEOUT" --foreground "$secs" "$@" </dev/null
+  else
+    "$@" </dev/null
+  fi
+}
+
 rm -rf "$REPORT_DIR"
 mkdir -p "$REPORT_DIR"
 
@@ -48,16 +73,23 @@ log "starting postgres + postgrest"
 if [ ! -f .env ]; then
   cp .env.example .env
 fi
-docker compose up -d postgres postgrest
+run_bounded "$INSTALL_TIMEOUT" docker compose up -d postgres postgrest
 
 log "waiting for postgres"
+pg_ready=0
 for _ in $(seq 1 60); do
-  if docker compose exec -T postgres pg_isready -U pwrap -d pwrap >/dev/null 2>&1; then break; fi
+  if docker compose exec -T postgres pg_isready -U pwrap -d pwrap >/dev/null 2>&1; then pg_ready=1; break; fi
   sleep 1
 done
+if [ "$pg_ready" -ne 1 ]; then
+  echo "postgres never became ready" >&2
+  docker compose logs --tail 50 postgres >&2
+  exit 1
+fi
 
 log "applying control-plane schema"
-docker compose exec -T postgres psql -U pwrap -d pwrap -v ON_ERROR_STOP=1 -q \
+run_bounded 120 docker compose exec -T postgres \
+  psql -U pwrap -d pwrap -v ON_ERROR_STOP=1 -q -f - \
   < migrations/controlplane/0001_init.up.sql
 
 log "starting pwrapd"
@@ -105,12 +137,16 @@ for r in "${RUNNERS[@]}"; do
   case "$r" in
     go)
       log "conformance: go"
-      go run ./conformance/go || status=1
+      run_bounded "$RUNNER_TIMEOUT" go run ./conformance/go || status=1
       ;;
     ts)
       log "conformance: typescript"
-      (cd sdk/ts && pnpm install --silent && pnpm run build >/dev/null)
-      (cd conformance/ts && pnpm install --silent && pnpm start) || status=1
+      # --frozen-lockfile so a cold CI install can't silently resolve something
+      # different from what was tested locally.
+      ( cd sdk/ts        && run_bounded "$INSTALL_TIMEOUT" pnpm install --frozen-lockfile --reporter=silent ) || { status=1; continue; }
+      ( cd sdk/ts        && run_bounded "$INSTALL_TIMEOUT" pnpm run build >/dev/null )                        || { status=1; continue; }
+      ( cd conformance/ts && run_bounded "$INSTALL_TIMEOUT" pnpm install --reporter=silent )                  || { status=1; continue; }
+      ( cd conformance/ts && run_bounded "$RUNNER_TIMEOUT"  pnpm start )                                      || status=1
       ;;
     py)
       log "conformance: python"
@@ -124,10 +160,10 @@ for r in "${RUNNERS[@]}"; do
           log "installing the python sdk into $venv"
           python3 -m venv "$venv"
         fi
-        "$venv/bin/pip" install -q -e sdk/py
+        run_bounded "$INSTALL_TIMEOUT" "$venv/bin/pip" install -q -e sdk/py || { status=1; continue; }
         PY="$venv/bin/python"
       fi
-      "$PY" conformance/py/runner.py || status=1
+      run_bounded "$RUNNER_TIMEOUT" "$PY" conformance/py/runner.py || status=1
       ;;
     *)
       echo "unknown runner: $r" >&2

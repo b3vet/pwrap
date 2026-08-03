@@ -53,6 +53,9 @@ jobs:
   # parity: a scenario an SDK declares but doesn't cover fails the build.
   conformance:
     runs-on: ubuntu-latest
+    # A hung suite must fail with logs rather than burn a runner for six hours.
+    # The whole thing takes about four minutes; 20 is generous.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -75,7 +78,17 @@ jobs:
       - name: build binaries
         run: make build
       - name: conformance suite
+        env:
+          CI: "true"
         run: ./conformance/run.sh
+      - name: stack logs on failure
+        if: failure()
+        run: |
+          echo "--- pwrapd ---"
+          tail -100 conformance/.reports/pwrapd.log 2>/dev/null || echo "(no pwrapd log)"
+          echo "--- containers ---"
+          docker compose ps || true
+          docker compose logs --tail 100 || true
       - name: upload reports
         if: always()
         uses: actions/upload-artifact@v4
