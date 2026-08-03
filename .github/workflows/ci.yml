@@ -89,9 +89,13 @@ jobs:
           python-version: "3.12"
       - name: install pwrap (editable) + dev deps
         run: pip install -e sdk/py pytest pytest-asyncio
-      - name: pytest (import check only — integration tests need pwrapd)
-        run: |
-          cd sdk/py && python -c "import pwrap; print('pwrap', pwrap.SCHEMA_VERSION)"
-          # The pytest suite auto-skips when pwrapd isn't reachable, so this is a smoke,
-          # not a full integration. Real integration lives in the Go suite above.
-          python -m pytest -q sdk/py
+      - name: import smoke
+        run: python -c "import pwrap; print('pwrap', pwrap.SCHEMA_VERSION)"
+      # These skip when pwrapd isn't reachable, so this only proves the suite is
+      # collectable. The conformance job is what actually exercises the SDK.
+      # Scoped with working-directory rather than `cd` — a `cd` on one line of a
+      # multi-line run block leaks into the next, which is how this job came to
+      # invoke pytest against sdk/py/sdk/py.
+      - name: pytest (collection + skips)
+        working-directory: sdk/py
+        run: python -m pytest -q

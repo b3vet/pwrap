@@ -77,6 +77,16 @@ func (h *Handler) apply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Tell PostgREST to re-read the schema. Its cache is built at connection
+	// time, so a table created here stays invisible — 404 on every request —
+	// until something else happens to trigger a reload. That breaks the exact
+	// workflow the README documents: `pwrap sql apply`, then query the table
+	// over REST. Best-effort: PostgREST may not be running, which is fine.
+	if _, err := tenantPool.Exec(r.Context(), `NOTIFY pgrst, 'reload schema'`); err != nil {
+		_ = err // nothing actionable; the DDL is already committed
+	}
+
 	writeJSON(w, http.StatusOK, applyResp{Applied: true})
 }
 
