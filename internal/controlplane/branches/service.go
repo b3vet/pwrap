@@ -19,8 +19,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/berkeucvet/pwrap/internal/controlplane/migrations"
-	"github.com/berkeucvet/pwrap/internal/controlplane/projects"
+	"github.com/b3vet/pwrap/internal/controlplane/migrations"
+	"github.com/b3vet/pwrap/internal/controlplane/projects"
 )
 
 // DefaultCopyTables lists the pwrap built-ins that get their rows copied when a branch

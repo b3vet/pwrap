@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/berkeucvet/pwrap/internal/controlplane/migrations"
-	"github.com/berkeucvet/pwrap/sdk/go/pwrap"
+	"github.com/b3vet/pwrap/internal/controlplane/migrations"
+	"github.com/b3vet/pwrap/sdk/go/pwrap"
 )
 
 // TestMain spins up one Stack for the whole package. Per-test isolation comes

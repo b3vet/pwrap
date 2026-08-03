@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/berkeucvet/pwrap/internal/config"
-	"github.com/berkeucvet/pwrap/internal/controlplane/projects"
-	"github.com/berkeucvet/pwrap/internal/controlplane/tenancy"
+	"github.com/b3vet/pwrap/internal/config"
+	"github.com/b3vet/pwrap/internal/controlplane/projects"
+	"github.com/b3vet/pwrap/internal/controlplane/tenancy"
 )
 
 type Handler struct {

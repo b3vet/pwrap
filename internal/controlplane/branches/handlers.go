@@ -8,7 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/berkeucvet/pwrap/internal/controlplane/projects"
+	"github.com/b3vet/pwrap/internal/controlplane/projects"
 )
 
 type Handler struct {

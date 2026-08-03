@@ -1,4 +1,4 @@
-module github.com/berkeucvet/pwrap/sdk/go
+module github.com/b3vet/pwrap/sdk/go
 
 go 1.25.0
 

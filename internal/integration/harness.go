@@ -22,11 +22,11 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/berkeucvet/pwrap/internal/config"
-	"github.com/berkeucvet/pwrap/internal/controlplane"
-	"github.com/berkeucvet/pwrap/internal/controlplane/authsetup"
-	"github.com/berkeucvet/pwrap/internal/controlplane/migrations"
-	cpmigrations "github.com/berkeucvet/pwrap/migrations/controlplane"
+	"github.com/b3vet/pwrap/internal/config"
+	"github.com/b3vet/pwrap/internal/controlplane"
+	"github.com/b3vet/pwrap/internal/controlplane/authsetup"
+	"github.com/b3vet/pwrap/internal/controlplane/migrations"
+	cpmigrations "github.com/b3vet/pwrap/migrations/controlplane"
 )
 
 const (

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/berkeucvet/pwrap/internal/config"
-	"github.com/berkeucvet/pwrap/internal/controlplane/projects"
+	"github.com/b3vet/pwrap/internal/config"
+	"github.com/b3vet/pwrap/internal/controlplane/projects"
 )
 
 // Connection is what /v1/connection returns to an authenticated SDK.

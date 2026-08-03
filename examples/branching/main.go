@@ -25,7 +25,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/berkeucvet/pwrap/sdk/go/pwrap"
+	"github.com/b3vet/pwrap/sdk/go/pwrap"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/berkeucvet/pwrap/internal/config"
+	"github.com/b3vet/pwrap/internal/config"
 )
 
 func TestHealthz(t *testing.T) {

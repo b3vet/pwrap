@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 BIN := bin
-PKG := github.com/berkeucvet/pwrap
+PKG := github.com/b3vet/pwrap
 
 .PHONY: help
 help: ## Show this help

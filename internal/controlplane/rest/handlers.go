@@ -9,10 +9,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/berkeucvet/pwrap/internal/auth"
-	"github.com/berkeucvet/pwrap/internal/config"
-	"github.com/berkeucvet/pwrap/internal/controlplane/authjwt"
-	"github.com/berkeucvet/pwrap/internal/controlplane/projects"
+	"github.com/b3vet/pwrap/internal/auth"
+	"github.com/b3vet/pwrap/internal/config"
+	"github.com/b3vet/pwrap/internal/controlplane/authjwt"
+	"github.com/b3vet/pwrap/internal/controlplane/projects"
 )
 
 type Handler struct {

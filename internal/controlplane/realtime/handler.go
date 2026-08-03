@@ -10,9 +10,9 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/berkeucvet/pwrap/internal/auth"
-	"github.com/berkeucvet/pwrap/internal/controlplane/keys"
-	"github.com/berkeucvet/pwrap/internal/controlplane/projects"
+	"github.com/b3vet/pwrap/internal/auth"
+	"github.com/b3vet/pwrap/internal/controlplane/keys"
+	"github.com/b3vet/pwrap/internal/controlplane/projects"
 )
 
 // Handler upgrades GET /v1/subscribe into a WebSocket and pipes matching

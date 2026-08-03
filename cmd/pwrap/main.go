@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/berkeucvet/pwrap/internal/neon"
+	"github.com/b3vet/pwrap/internal/neon"
 )
 
 var version = "0.0.0-dev"

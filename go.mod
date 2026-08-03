@@ -1,13 +1,16 @@
-module github.com/berkeucvet/pwrap
+module github.com/b3vet/pwrap
 
 go 1.25.4
 
-// The SDK lives in this repo under sdk/go but publishes under its own module path
-// so it can be imported by external apps later. Until it's pushed to a VCS host,
-// redirect resolution to the local tree so `go mod tidy` works offline.
-replace github.com/berkeucvet/pwrap/sdk/go => ./sdk/go
+// The SDK lives in this repo under sdk/go but publishes under its own module
+// path so external apps can import it without pulling in the daemon's
+// dependency tree. Redirect resolution to the local tree so pwrapd, the CLI and
+// the examples always build against the in-tree SDK rather than the last tagged
+// release. This `replace` only affects builds of this module; consumers of
+// github.com/b3vet/pwrap/sdk/go are unaffected by it.
+replace github.com/b3vet/pwrap/sdk/go => ./sdk/go
 
-require github.com/berkeucvet/pwrap/sdk/go v0.0.0-00010101000000-000000000000
+require github.com/b3vet/pwrap/sdk/go v0.0.0-00010101000000-000000000000
 
 require (
 	github.com/coder/websocket v1.8.14

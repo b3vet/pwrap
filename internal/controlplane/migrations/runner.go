@@ -13,10 +13,10 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 
-	"github.com/berkeucvet/pwrap/internal/config"
-	"github.com/berkeucvet/pwrap/internal/controlplane/projects"
-	"github.com/berkeucvet/pwrap/internal/controlplane/tenancy"
-	tenantmigs "github.com/berkeucvet/pwrap/migrations/tenant"
+	"github.com/b3vet/pwrap/internal/config"
+	"github.com/b3vet/pwrap/internal/controlplane/projects"
+	"github.com/b3vet/pwrap/internal/controlplane/tenancy"
+	tenantmigs "github.com/b3vet/pwrap/migrations/tenant"
 )
 
 // Entry is one row in migration_log, exposed to clients via GET /v1/projects/:id/migrations.

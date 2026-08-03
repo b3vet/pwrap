@@ -126,7 +126,7 @@ Required env for REST: `PWRAP_AUTHENTICATOR_PASSWORD`, `PWRAP_JWT_SECRET`.
 ## Go SDK
 
 ```go
-import "github.com/berkeucvet/pwrap/sdk/go/pwrap"
+import "github.com/b3vet/pwrap/sdk/go/pwrap"
 
 c, _ := pwrap.New(ctx, pwrap.Config{
     ControlURL: "http://localhost:8080",

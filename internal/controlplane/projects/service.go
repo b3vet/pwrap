@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/berkeucvet/pwrap/internal/controlplane/authsetup"
-	"github.com/berkeucvet/pwrap/internal/crypto"
+	"github.com/b3vet/pwrap/internal/controlplane/authsetup"
+	"github.com/b3vet/pwrap/internal/crypto"
 )
 
 type Project struct {

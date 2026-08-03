@@ -1,6 +1,6 @@
 # pwrap — Python SDK
 
-Async Python SDK for [pwrap](https://github.com/berkeucvet/pwrap).
+Async Python SDK for [pwrap](https://github.com/b3vet/pwrap).
 
 ```python
 import asyncio
