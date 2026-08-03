@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS projects (
     slug              TEXT        NOT NULL UNIQUE,
     pg_role           TEXT        NOT NULL,
     pg_schema         TEXT        NOT NULL,
-    pg_password       TEXT        NOT NULL,                       -- TODO(M2+): encrypt at rest
+    -- Encrypted at rest with AES-256-GCM when PWRAP_ENCRYPTION_KEY is set, using
+    -- the envelope format `v1:<base64>`. Cleartext otherwise (pwrapd warns loudly
+    -- at startup, and re-encrypts legacy plaintext rows once a key is configured).
+    pg_password       TEXT        NOT NULL,
     -- parent_project_id points to the project this one was branched from. NULL for
     -- "root" projects. Used to support `pwrap branch` workflows.
     parent_project_id UUID        REFERENCES projects(id) ON DELETE SET NULL,

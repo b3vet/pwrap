@@ -4,11 +4,19 @@ info:
   version: 0.1.0
   description: |
     Control plane API for pwrap. Manages projects, API keys, tenant migrations,
-    and short-lived scoped DSN handoff for SDKs.
+    branching, PostgREST token issuance, realtime subscriptions, and short-lived
+    scoped DSN handoff for SDKs.
 
-    SDKs authenticate with a project API key (bearer) and exchange it at
-    `/v1/projects/{id}/connection` for a short-lived Postgres DSN, which they
-    use to talk to Postgres directly.
+    Two auth surfaces:
+
+    - **Admin** (`PWRAP_BOOTSTRAP_TOKEN`) — project/key/migration/SQL/branch
+      management. A single shared credential; treat it as a root password.
+    - **Project API key** (`pwk_…`) — the SDK surface. Exchanged at
+      `/v1/connection` for a Postgres DSN, which the SDK then uses to talk to
+      Postgres directly.
+
+    Endpoints under `/v1/connection`, `/v1/rest/token` and `/v1/subscribe` are
+    rate limited per API-key prefix (10 rps, burst 20).
 servers:
   - url: http://localhost:8080
     description: local dev
@@ -44,6 +52,7 @@ paths:
   /v1/projects:
     post:
       summary: Create project
+      description: Provisions a Postgres role and schema (`p_<slug>`) for the project.
       security: [{ AdminBearer: [] }]
       requestBody:
         required: true
@@ -117,15 +126,141 @@ paths:
       - { in: path, name: keyID, required: true, schema: { type: string, format: uuid } }
     delete:
       summary: Revoke API key
+      description: |
+        Revokes the key for future `/v1/connection` and `/v1/rest/token` calls.
+        **Does not revoke a DSN that was already issued** — see the note on
+        `/v1/connection`.
       security: [{ AdminBearer: [] }]
       responses:
         "204": { description: revoked }
         "404": { description: not found }
 
+  /v1/projects/{id}/migrations:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Apply pending tenant migrations
+      description: |
+        Applies the embedded baseline (pwrap built-in tables, River queue schema)
+        to the project's schema. Idempotent — re-running is a no-op when current.
+      security: [{ AdminBearer: [] }]
+      responses:
+        "200": { description: applied, content: { application/json: { schema: { $ref: "#/components/schemas/MigrationEntry" } } } }
+        "400": { description: bad project id }
+        "500": { description: migration failed (a failed row is still written to the log) }
+    get:
+      summary: Migration status
+      security: [{ AdminBearer: [] }]
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { $ref: "#/components/schemas/MigrationStatus" } } } }
+        "400": { description: bad project id }
+
+  /v1/projects/{id}/sql:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Apply user-supplied SQL as the tenant role
+      description: |
+        Escape hatch for creating real (non-JSONB) tables that PostgREST can
+        expose. The request body is raw SQL, **not** JSON, executed as one
+        transaction as the tenant role.
+
+        This endpoint executes arbitrary SQL by design. It is admin-authenticated
+        and must never be exposed to project API keys.
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: { type: string, description: "SQL, executed verbatim in a transaction" }
+      responses:
+        "200": { description: applied, content: { application/json: { schema: { type: object, properties: { applied: { type: boolean } } } } } }
+        "400": { description: "empty body, unreadable body, or SQL error (transaction rolled back)" }
+        "404": { description: project not found }
+
+  /v1/projects/{id}/branches:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Branch a project
+      description: |
+        Creates a child project with its own role, schema and baseline
+        migrations, linked to the parent via `parent_project_id`. With
+        `with_data: true`, rows from the parent's built-in tables are copied.
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:        { type: string, description: "defaults to <parent-slug>_branch" }
+                with_data:   { type: boolean, default: false }
+                copy_tables:
+                  type: array
+                  items: { type: string }
+                  description: >-
+                    Overrides the default set (pwrap_documents, pwrap_embeddings,
+                    pwrap_geo, pwrap_matviews). Tables absent from the parent are skipped.
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { description: bad project id or invalid name }
+        "404": { description: parent not found }
+        "409": { description: branch name already taken }
+    get:
+      summary: List direct branches of a project (one level deep)
+      security: [{ AdminBearer: [] }]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+        "400": { description: bad project id }
+
+  /v1/projects/{id}/sync:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid }, description: "the CHILD project id" }
+    post:
+      summary: Re-copy parent data into an existing branch
+      description: |
+        Idempotent merge (`ON CONFLICT DO NOTHING`). Called on the child project.
+        Fails if the project has no parent.
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tables:
+                  type: array
+                  items: { type: string }
+                  description: defaults to the built-in table set
+                truncate:
+                  type: boolean
+                  default: false
+                  description: wipe the child's rows before copying
+      responses:
+        "204": { description: synced }
+        "400": { description: bad project id }
+        "500": { description: "not a branch, or copy failed" }
+
   /v1/connection:
     post:
-      summary: Exchange API key for short-lived Postgres DSN
-      description: SDK bootstrap endpoint. Authenticated with the project API key.
+      summary: Exchange API key for a Postgres DSN
+      description: |
+        SDK bootstrap endpoint. Authenticated with the project API key; the
+        project is resolved from the key, so no id is in the path.
+
+        **Credential lifetime.** `expires_at` is a *refresh hint* for the SDK,
+        not an enforced expiry. The DSN carries the tenant role's stable
+        password, so it keeps working after `expires_at` passes and after the
+        issuing API key is revoked. Rotating per-issue credentials are planned;
+        until then, treat an issued DSN as a long-lived secret and rotate the
+        role password directly if one leaks.
       security: [{ APIKeyBearer: [] }]
       responses:
         "200":
@@ -135,6 +270,53 @@ paths:
               schema: { $ref: "#/components/schemas/Connection" }
         "401": { description: missing or invalid key }
         "403": { description: revoked or expired }
+        "429": { description: rate limited }
+
+  /v1/rest/token:
+    post:
+      summary: Issue a PostgREST-compatible JWT
+      description: |
+        Returns an HS256 JWT whose `role` claim is the project's tenant role, for
+        use against the PostgREST sidecar. Returns 503 when REST is not
+        configured (`PWRAP_JWT_SECRET` / `PWRAP_AUTHENTICATOR_PASSWORD` unset).
+      security: [{ APIKeyBearer: [] }]
+      requestBody:
+        description: optional
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:     { type: string, description: "echoed into request.jwt.claims for RLS" }
+                ttl_seconds: { type: integer, description: "defaults to PWRAP_REST_TOKEN_TTL_SECONDS (3600)" }
+      responses:
+        "200": { description: issued, content: { application/json: { schema: { $ref: "#/components/schemas/RestToken" } } } }
+        "401": { description: missing or invalid key }
+        "404": { description: project not found }
+        "429": { description: rate limited }
+        "503": { description: REST integration disabled }
+
+  /v1/subscribe:
+    get:
+      summary: Subscribe to change events (WebSocket)
+      description: |
+        Upgrades to a WebSocket and streams `ChangeEvent` JSON messages for the
+        authenticated project's schema.
+
+        Auth is via the `api_key` query parameter or an `Authorization` header.
+        The query parameter exists because browsers cannot set headers on a
+        `WebSocket` constructor — which also means the key appears in URLs and
+        may be logged by proxies. Prefer the header wherever you control the
+        client.
+      parameters:
+        - { in: query, name: api_key, schema: { type: string }, description: "required unless an Authorization header is sent" }
+        - { in: query, name: table,   schema: { type: string }, description: "restrict to one table" }
+        - { in: query, name: user_id, schema: { type: string }, description: "restrict to rows whose change carried this jwt user_id" }
+      responses:
+        "101": { description: switching protocols — the stream carries ChangeEvent messages }
+        "401": { description: missing or invalid api key }
+        "404": { description: project not found }
+        "429": { description: rate limited }
 
 components:
   securitySchemes:
@@ -156,13 +338,14 @@ components:
     Project:
       type: object
       properties:
-        id:         { type: string, format: uuid }
-        name:       { type: string }
-        slug:       { type: string }
-        pg_role:    { type: string }
-        pg_schema:  { type: string }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
+        id:                { type: string, format: uuid }
+        name:              { type: string }
+        slug:              { type: string }
+        pg_role:           { type: string }
+        pg_schema:         { type: string }
+        parent_project_id: { type: string, format: uuid, nullable: true, description: "set when the project is a branch" }
+        created_at:        { type: string, format: date-time }
+        updated_at:        { type: string, format: date-time }
     APIKey:
       type: object
       properties:
@@ -183,8 +366,59 @@ components:
             key: { type: string, description: "plaintext, returned once" }
     Connection:
       type: object
-      required: [dsn, schema, expires_at]
+      required: [dsn, schema, schema_version, expires_at]
       properties:
-        dsn:        { type: string }
-        schema:     { type: string }
+        dsn:            { type: string }
+        schema:         { type: string }
+        schema_version:
+          type: string
+          description: >-
+            Latest migration version applied to the tenant schema; empty when
+            migrations have never been applied. SDKs compare this against their
+            compile-time constant and refuse a tenant that is behind.
+        expires_at:
+          type: string
+          format: date-time
+          description: "refresh hint, not an enforced expiry — see the endpoint description"
+    RestToken:
+      type: object
+      required: [token, url, role, expires_at]
+      properties:
+        token:      { type: string, description: "HS256 JWT" }
+        url:        { type: string, description: "PostgREST base URL (PWRAP_REST_URL)" }
+        role:       { type: string, description: "Postgres tenant role encoded in the token" }
         expires_at: { type: string, format: date-time }
+    MigrationEntry:
+      type: object
+      properties:
+        id:           { type: integer, format: int64 }
+        version:      { type: string }
+        source:       { type: string }
+        checksum:     { type: string }
+        state:        { type: string }
+        error:        { type: string }
+        started_at:   { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+    MigrationStatus:
+      type: object
+      properties:
+        current:    { type: string, description: "latest applied version, empty if none" }
+        target:     { type: string, description: "latest available version" }
+        up_to_date: { type: boolean }
+        log:
+          type: array
+          items: { $ref: "#/components/schemas/MigrationEntry" }
+    ChangeEvent:
+      type: object
+      description: "Streamed over /v1/subscribe."
+      required: [log_id, schema, table, op, created_at]
+      properties:
+        log_id:     { type: integer, format: int64 }
+        schema:     { type: string }
+        table:      { type: string }
+        op:         { type: string, enum: [INSERT, UPDATE, DELETE] }
+        row_id:     { type: string }
+        user_id:    { type: string }
+        before:     { type: object, nullable: true }
+        after:      { type: object, nullable: true }
+        created_at: { type: string, format: date-time }

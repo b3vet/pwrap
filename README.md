@@ -11,7 +11,7 @@ An opinionated, all-in-one Postgres backend. One tool that gives a new project t
 - **Durable queue** (`SELECT … FOR UPDATE SKIP LOCKED`) via [River](https://github.com/riverqueue/river) — retries, DLQ, visibility
 - **Vector search** via [pgvector](https://github.com/pgvector/pgvector) + HNSW (1536-dim)
 - **Migrations** applied per-project (baseline + River schema)
-- **Control plane** (`pwrapd`): projects, argon2id API keys, short-lived DSN handoff
+- **Control plane** (`pwrapd`): projects, argon2id API keys, scoped DSN handoff
 - **SDKs**: Go and TypeScript
 
 **Track A (M7–M9):**
@@ -51,6 +51,8 @@ Hybrid: SDKs talk to Postgres directly on the hot path; a thin control plane own
 ```
 
 On project create, `pwrapd` provisions a Postgres role + schema (`p_<slug>`). On bootstrap, the SDK exchanges its API key for a scoped DSN and caches it until expiry.
+
+> **Credential lifetime.** The DSN returned by `/v1/connection` carries the tenant role's *stable* password, and its `expires_at` (24h) is a refresh hint for the SDK — nothing enforces it server-side. An issued DSN therefore keeps working past `expires_at`, and **revoking the API key does not revoke a DSN already handed out.** Rotating per-issue credentials are on the roadmap; until then, treat an issued DSN as a long-lived secret. See [SECURITY.md](SECURITY.md).
 
 ## Quickstart
 

@@ -99,4 +99,4 @@ The Neon client's HTTP behaviour is covered by table-driven tests against an `ht
 go test ./internal/neon/... -v
 ```
 
-For end-to-end CLI verification you can stand up the toy mock at `scripts/mock-neon.go` (kept gitignored) and point the CLI at it via `PWRAP_NEON_BASE_URL=http://localhost:9911`.
+For end-to-end CLI verification you can stand up the toy mock at `scripts/mock-neon.go` (carries a `//go:build ignore` tag, so it's excluded from normal builds) and point the CLI at it via `PWRAP_NEON_BASE_URL=http://localhost:9911`.

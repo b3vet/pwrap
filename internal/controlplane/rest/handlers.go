@@ -38,7 +38,7 @@ type issueResp struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// IssueToken handles POST /v1/projects/{id}/rest/token.
+// IssueToken handles POST /v1/rest/token.
 // Authenticated via project API key (APIKeyAuth middleware attaches the project ID).
 // Request body is optional — {"user_id": "...", "ttl_seconds": 3600}.
 func (h *Handler) IssueToken(w http.ResponseWriter, r *http.Request) {
