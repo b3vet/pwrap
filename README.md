@@ -209,13 +209,20 @@ await c.queue().enqueue({ kind: "embed", args: { id } });
 await c.close();
 ```
 
-For edge runtimes, use the Neon subpath:
+For edge runtimes (Cloudflare Workers, Vercel Edge) where TCP isn't available,
+swap in Neon's serverless driver:
 
 ```ts
 import { PwrapClient } from "@pwrap/sdk";
 import { neonDriverAsync } from "@pwrap/sdk/neon";
-// pass a driver into PwrapClient.connect for Neon's serverless stack
+
+const c = await PwrapClient.connect({
+  apiKey: "pwk_...",
+  driver: neonDriverAsync,
+});
 ```
+
+`@neondatabase/serverless` is an optional peer dependency — install it only if you use this path.
 
 ## Roadmap
 

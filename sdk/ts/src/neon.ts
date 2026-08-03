@@ -3,8 +3,8 @@
 //
 // Usage:
 //   import { PwrapClient } from "@pwrap/sdk";
-//   import { neonDriver } from "@pwrap/sdk/neon";
-//   const c = await PwrapClient.connect({ apiKey, driver: neonDriver });
+//   import { neonDriverAsync } from "@pwrap/sdk/neon";
+//   const c = await PwrapClient.connect({ apiKey, driver: neonDriverAsync });
 //
 // `@neondatabase/serverless` exposes a postgres.js-compatible template-tag API, so it
 // plugs into PwrapClient.driver without adapters.

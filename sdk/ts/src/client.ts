@@ -20,8 +20,11 @@ export interface PwrapConfig {
    * Optional driver factory. Defaults to `postgres` (postgres.js). Swap in
    * `@pwrap/sdk/neon`'s factory for Neon/edge. Must return an object compatible
    * with a minimal subset of postgres.js: tagged-template query + .unsafe() + .end().
+   *
+   * May be async: the Neon factory dynamically imports its optional dependency,
+   * so it can only resolve a driver on a promise.
    */
-  driver?: (dsn: string) => Sql;
+  driver?: (dsn: string) => Sql | Promise<Sql>;
 }
 
 interface ConnectionResp {
@@ -80,7 +83,7 @@ export class PwrapClient {
     }
 
     const driver = cfg.driver ?? ((dsn: string) => postgres(dsn, { prepare: false }));
-    const sql = driver(body.dsn);
+    const sql = await driver(body.dsn);
     return new PwrapClient(sql, body.schema, new Date(body.expires_at), controlUrl, cfg.apiKey, f);
   }
 
@@ -100,8 +103,14 @@ export class PwrapClient {
     return sub;
   }
 
-  table(collection: string): Table {
-    return new Table(this.sql, collection);
+  /**
+   * Typed JSONB collection. `T` describes the document body, so `insert` and
+   * `find` are checked against your own shape:
+   *
+   *   const notes = c.table<{ title: string; tags: string[] }>("notes");
+   */
+  table<T extends Record<string, unknown> = Record<string, unknown>>(collection: string): Table<T> {
+    return new Table<T>(this.sql, collection);
   }
 
   vector(collection: string): Vector {

@@ -3,6 +3,26 @@
   "version": "0.0.0",
   "description": "TypeScript SDK for pwrap — Postgres-backed all-in-one backend.",
   "license": "Apache-2.0",
+  "author": "Berke Ucvet",
+  "homepage": "https://github.com/b3vet/pwrap#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/b3vet/pwrap.git",
+    "directory": "sdk/ts"
+  },
+  "bugs": {
+    "url": "https://github.com/b3vet/pwrap/issues"
+  },
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "backend",
+    "pgvector",
+    "postgrest",
+    "postgis",
+    "jsonb",
+    "realtime"
+  ],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,7 +41,8 @@
   },
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"
@@ -35,8 +56,13 @@
   "dependencies": {
     "postgres": "^3.4.4"
   },
-  "optionalDependencies": {
+  "peerDependencies": {
     "@neondatabase/serverless": "^0.10.0"
+  },
+  "peerDependenciesMeta": {
+    "@neondatabase/serverless": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
