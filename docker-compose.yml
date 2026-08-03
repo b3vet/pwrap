@@ -1,0 +1,46 @@
+services:
+  postgres:
+    build:
+      context: docker/postgres
+    image: pwrap-postgres:local
+    container_name: pwrap-postgres
+    environment:
+      POSTGRES_USER: pwrap
+      POSTGRES_PASSWORD: pwrap
+      POSTGRES_DB: pwrap
+    ports:
+      - "5432:5432"
+    volumes:
+      - pwrap-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pwrap -d pwrap"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.0
+    container_name: pwrap-postgrest
+    # pwrapd creates pwrap_authenticator at startup; PostgREST may race and die
+    # with "password authentication failed" on the first boot. Auto-restart until
+    # the role exists.
+    restart: unless-stopped
+    environment:
+      # Authenticator role owned + provisioned by pwrapd on startup.
+      PGRST_DB_URI: "postgres://pwrap_authenticator:${PWRAP_AUTHENTICATOR_PASSWORD:-authpw}@postgres:5432/pwrap"
+      # db-config=true → PostgREST reads ALTER-ROLE settings from Postgres at runtime,
+      # so pwrapd can add/remove tenant schemas without a PostgREST restart.
+      PGRST_DB_CONFIG: "true"
+      # Initial fallback. Actual value comes from the authenticator role's settings.
+      PGRST_DB_SCHEMAS: "public"
+      PGRST_DB_ANON_ROLE: "pwrap_anon"
+      PGRST_JWT_SECRET: "${PWRAP_JWT_SECRET:-super-dev-jwt-secret-please-change-me-32bytes}"
+      PGRST_OPENAPI_SERVER_PROXY_URI: "http://localhost:3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pwrap-pgdata: {}

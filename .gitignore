@@ -1,0 +1,33 @@
+# Binaries
+/bin/
+/dist/
+pwrapd
+pwrap
+*.exe
+
+# Go
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Env (committed: .env.example; local: .env)
+.env
+.env.local
+*.local
+!.env.example
+
+# Node / pnpm
+node_modules/
+sdk/ts/dist/
+sdk/ts/.turbo/
+pnpm-debug.log*
+
+# Docker
+.docker-data/

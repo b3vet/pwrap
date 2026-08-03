@@ -1,0 +1,86 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: tidy check
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - name: vet
+        run: go vet ./...
+      - name: test (unit)
+        run: go test ./... -race -count=1
+      - name: build
+        run: |
+          go build ./cmd/pwrapd
+          go build ./cmd/pwrap
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: build pwrap-postgres image
+        run: docker compose build postgres
+      - name: testcontainers integration suite
+        run: go test -tags integration ./internal/integration/... -count=1 -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62.2
+
+  ts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: sdk/ts/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run build
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install pwrap (editable) + dev deps
+        run: pip install -e sdk/py pytest pytest-asyncio
+      - name: pytest (import check only — integration tests need pwrapd)
+        run: |
+          cd sdk/py && python -c "import pwrap; print('pwrap', pwrap.SCHEMA_VERSION)"
+          # The pytest suite auto-skips when pwrapd isn't reachable, so this is a smoke,
+          # not a full integration. Real integration lives in the Go suite above.
+          python -m pytest -q sdk/py

@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: pwrap control plane
+  version: 0.1.0
+  description: |
+    Control plane API for pwrap. Manages projects, API keys, tenant migrations,
+    and short-lived scoped DSN handoff for SDKs.
+
+    SDKs authenticate with a project API key (bearer) and exchange it at
+    `/v1/projects/{id}/connection` for a short-lived Postgres DSN, which they
+    use to talk to Postgres directly.
+servers:
+  - url: http://localhost:8080
+    description: local dev
+
+paths:
+  /v1/healthz:
+    get:
+      summary: Liveness
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /v1/readyz:
+    get:
+      summary: Readiness (checks Postgres)
+      responses:
+        "200":
+          description: ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: unready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /v1/projects:
+    post:
+      summary: Create project
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties: { name: { type: string } }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { description: invalid name }
+        "409": { description: already exists }
+    get:
+      summary: List projects
+      security: [{ AdminBearer: [] }]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+
+  /v1/projects/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: Get project
+      security: [{ AdminBearer: [] }]
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "404": { description: not found }
+    delete:
+      summary: Delete project (soft + drop role/schema)
+      security: [{ AdminBearer: [] }]
+      responses:
+        "204": { description: deleted }
+        "404": { description: not found }
+
+  /v1/projects/{id}/keys:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Issue API key (plaintext returned once)
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { name: { type: string } }
+      responses:
+        "201": { description: issued, content: { application/json: { schema: { $ref: "#/components/schemas/IssuedKey" } } } }
+    get:
+      summary: List API keys
+      security: [{ AdminBearer: [] }]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/APIKey" }
+
+  /v1/projects/{id}/keys/{keyID}:
+    parameters:
+      - { in: path, name: id,    required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: keyID, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke API key
+      security: [{ AdminBearer: [] }]
+      responses:
+        "204": { description: revoked }
+        "404": { description: not found }
+
+  /v1/connection:
+    post:
+      summary: Exchange API key for short-lived Postgres DSN
+      description: SDK bootstrap endpoint. Authenticated with the project API key.
+      security: [{ APIKeyBearer: [] }]
+      responses:
+        "200":
+          description: dsn minted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "401": { description: missing or invalid key }
+        "403": { description: revoked or expired }
+
+components:
+  securitySchemes:
+    AdminBearer:
+      type: http
+      scheme: bearer
+      description: "PWRAP_BOOTSTRAP_TOKEN"
+    APIKeyBearer:
+      type: http
+      scheme: bearer
+      description: "Project API key (pwk_...)"
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+        error:  { type: string }
+    Project:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        name:       { type: string }
+        slug:       { type: string }
+        pg_role:    { type: string }
+        pg_schema:  { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    APIKey:
+      type: object
+      properties:
+        id:           { type: string, format: uuid }
+        project_id:   { type: string, format: uuid }
+        prefix:       { type: string }
+        name:         { type: string }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        expires_at:   { type: string, format: date-time, nullable: true }
+        created_at:   { type: string, format: date-time }
+        revoked_at:   { type: string, format: date-time, nullable: true }
+    IssuedKey:
+      allOf:
+        - $ref: "#/components/schemas/APIKey"
+        - type: object
+          required: [key]
+          properties:
+            key: { type: string, description: "plaintext, returned once" }
+    Connection:
+      type: object
+      required: [dsn, schema, expires_at]
+      properties:
+        dsn:        { type: string }
+        schema:     { type: string }
+        expires_at: { type: string, format: date-time }

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>pwrap · realtime todos</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --done: #6e7681;
+      --card: #161b22;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif;
+           background: var(--bg); color: var(--fg); }
+    main { max-width: 540px; margin: 4rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 .25rem; font-weight: 600; }
+    p.lede { color: var(--muted); margin: 0 0 2rem; }
+    form { display: flex; gap: .5rem; margin-bottom: 1.5rem; }
+    input[type=text] { flex: 1; padding: .65rem .75rem; border: 1px solid var(--border);
+                       border-radius: 6px; background: var(--card); color: var(--fg); font: inherit; }
+    input[type=text]:focus { outline: 1px solid var(--accent); }
+    button { padding: .65rem 1rem; border: 1px solid var(--accent); border-radius: 6px;
+             background: var(--accent); color: #0f1419; font: inherit; font-weight: 600;
+             cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { display: flex; align-items: center; gap: .75rem; padding: .65rem .75rem;
+         border: 1px solid var(--border); border-radius: 6px; margin-bottom: .35rem;
+         background: var(--card); }
+    li.done .title { color: var(--done); text-decoration: line-through; }
+    .title { flex: 1; cursor: pointer; }
+    .del { color: var(--muted); cursor: pointer; padding: 0 .25rem; }
+    .del:hover { color: #ff6b6b; }
+    #status { font-size: .8rem; color: var(--muted); margin-top: 2rem; }
+    #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+                   background: var(--muted); margin-right: .35rem; vertical-align: middle; }
+    #status.ok .dot { background: #3fb950; }
+    .empty { color: var(--muted); text-align: center; padding: 2rem 0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>pwrap · realtime todos</h1>
+  <p class="lede">Open this page in two tabs. Type in one — watch the other.</p>
+
+  <form id="add">
+    <input type="text" id="title" placeholder="What needs doing?" autofocus required>
+    <button>Add</button>
+  </form>
+
+  <ul id="todos"></ul>
+  <p class="empty" id="empty">No todos yet — add one above.</p>
+
+  <div id="status"><span class="dot"></span><span id="statusText">connecting…</span></div>
+</main>
+
+<script>
+  const API_KEY = {{ .APIKey | printf "%q" }};
+  const CONTROL_URL = {{ .ControlURL | printf "%q" }};
+
+  const $todos = document.getElementById("todos");
+  const $empty = document.getElementById("empty");
+  const $title = document.getElementById("title");
+  const $status = document.getElementById("status");
+  const $statusText = document.getElementById("statusText");
+
+  // Map of id -> {id, title, done}
+  const state = new Map();
+
+  function render() {
+    if (state.size === 0) {
+      $todos.innerHTML = "";
+      $empty.style.display = "block";
+      return;
+    }
+    $empty.style.display = "none";
+    // Stable order: most recently created last (uuid is random; sort by insertion).
+    // For demo we just iterate map order (insertion order).
+    $todos.innerHTML = "";
+    for (const t of state.values()) {
+      const li = document.createElement("li");
+      li.className = t.done ? "done" : "";
+      li.dataset.id = t.id;
+
+      const span = document.createElement("span");
+      span.className = "title";
+      span.textContent = t.title;
+      span.onclick = () => toggleDone(t);
+      li.appendChild(span);
+
+      const del = document.createElement("span");
+      del.className = "del";
+      del.textContent = "✕";
+      del.onclick = () => deleteTodo(t.id);
+      li.appendChild(del);
+
+      $todos.appendChild(li);
+    }
+  }
+
+  async function loadInitial() {
+    const r = await fetch("/api/todos");
+    const docs = await r.json();
+    state.clear();
+    for (const d of docs || []) {
+      state.set(d.id, { id: d.id, title: d.data.title, done: !!d.data.done });
+    }
+    render();
+  }
+
+  document.getElementById("add").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = $title.value.trim();
+    if (!title) return;
+    $title.value = "";
+    await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    // No need to update state here — the WebSocket event will arrive.
+  });
+
+  async function toggleDone(t) {
+    await fetch("/api/todos/" + t.id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ done: !t.done }),
+    });
+  }
+
+  async function deleteTodo(id) {
+    await fetch("/api/todos/" + id, { method: "DELETE" });
+  }
+
+  function applyEvent(ev) {
+    if (ev.op === "INSERT" || ev.op === "UPDATE") {
+      const data = (ev.after && ev.after.data) || {};
+      state.set(ev.row_id, { id: ev.row_id, title: data.title, done: !!data.done });
+    } else if (ev.op === "DELETE") {
+      state.delete(ev.row_id);
+    }
+    render();
+  }
+
+  function connectWS() {
+    const wsURL = CONTROL_URL.replace(/^http/, "ws") + "/v1/subscribe?table=pwrap_documents&api_key=" + encodeURIComponent(API_KEY);
+    const ws = new WebSocket(wsURL);
+
+    ws.onopen = () => {
+      $status.className = "ok";
+      $statusText.textContent = "live";
+    };
+    ws.onclose = () => {
+      $status.className = "";
+      $statusText.textContent = "reconnecting…";
+      setTimeout(connectWS, 1000);
+    };
+    ws.onmessage = (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.type === "hello") return;  // server's hello envelope
+      applyEvent(ev);
+    };
+  }
+
+  loadInitial().then(connectWS);
+</script>
+</body>
+</html>

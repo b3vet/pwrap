@@ -1,0 +1,46 @@
+{
+  "name": "@pwrap/sdk",
+  "version": "0.0.0",
+  "description": "TypeScript SDK for pwrap — Postgres-backed all-in-one backend.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./neon": {
+      "types": "./dist/neon.d.ts",
+      "import": "./dist/neon.js",
+      "require": "./dist/neon.cjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "postgres": "^3.4.4"
+  },
+  "optionalDependencies": {
+    "@neondatabase/serverless": "^0.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.4.0"
+  }
+}

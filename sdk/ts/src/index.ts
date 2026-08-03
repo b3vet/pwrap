@@ -1,0 +1,10 @@
+export { PwrapClient } from "./client.js";
+export type { PwrapConfig } from "./client.js";
+export type { Document } from "./table.js";
+export type { Match } from "./vector.js";
+export type { EnqueueRequest } from "./queue.js";
+export type { RestToken, RestTokenOpts } from "./rest.js";
+export type { Feature } from "./geo.js";
+export { Subscription } from "./subscribe.js";
+export type { ChangeEvent, SubscribeOpts } from "./subscribe.js";
+export { VectorDim, SchemaVersion } from "./constants.js";
