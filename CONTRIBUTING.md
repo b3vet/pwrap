@@ -50,17 +50,21 @@ in the path of every query, it probably belongs somewhere else.
 make fmt
 make lint             # golangci-lint v2
 make test             # unit tests, race detector
-make test-integration # testcontainers; needs Docker
+make test-integration # testcontainers, incl. PostgREST; needs Docker
+make conformance      # the same scenarios through all three SDKs
 ```
 
-CI runs all of the above plus TypeScript typecheck/build and a Python import
-smoke test. All five jobs must be green.
+CI runs all of the above plus TypeScript typecheck/build. All six jobs must be
+green. Slower checks — the end-to-end demos, a Postgres 16/17 matrix, and a
+benchmark baseline — run nightly.
 
 Some further expectations:
 
 - **Keep the three SDKs at parity.** A new capability in the Go SDK should land
   in TypeScript and Python too, with the same method names and semantics. If you
-  can only do one, say so in the PR and open an issue for the rest.
+  can only do one, record the gap in [`conformance/scenarios.json`](conformance/README.md)
+  with a reason — the suite prints every tracked gap on every run, so a partial
+  landing stays visible instead of quietly becoming permanent.
 - **Update `openapi.yaml`** when you add, remove or change an HTTP endpoint. It
   is validated as OpenAPI 3.1 and it is meant to match the server exactly.
 - **Migrations are append-only.** Add `NNNN_description.up.sql` and a matching

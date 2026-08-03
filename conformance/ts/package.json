@@ -1,0 +1,17 @@
+{
+  "name": "pwrap-conformance-ts",
+  "private": true,
+  "type": "module",
+  "description": "Cross-SDK conformance runner for @pwrap/sdk.",
+  "scripts": {
+    "start": "tsx runner.ts"
+  },
+  "//": "Depends on the built package rather than src/, so the runner exercises the exports map and type declarations a real consumer gets. Run `pnpm --filter @pwrap/sdk build` first.",
+  "dependencies": {
+    "@pwrap/sdk": "file:../../sdk/ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.4.0"
+  }
+}

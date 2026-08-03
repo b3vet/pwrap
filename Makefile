@@ -92,6 +92,14 @@ image: ## build pwrap-postgres:local (pgvector + pg_graphql + postgis)
 test-integration: image ## run testcontainers integration suite (slow, needs docker)
 	go test -tags integration ./internal/integration/... -count=1 -v
 
+.PHONY: conformance
+conformance: build ## run the cross-SDK conformance suite (Go + TS + Python)
+	./conformance/run.sh
+
+.PHONY: conformance-go
+conformance-go: build ## conformance, Go SDK only
+	./conformance/run.sh go
+
 .PHONY: lint
 lint: ## run golangci-lint
 	golangci-lint run ./...

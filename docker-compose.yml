@@ -9,7 +9,9 @@ services:
       POSTGRES_PASSWORD: pwrap
       POSTGRES_DB: pwrap
     ports:
-      - "5432:5432"
+      # Overridable: 5432 is very often already taken by another project's
+      # Postgres. The conformance suite binds its own port for this reason.
+      - "${PWRAP_PG_PORT:-5432}:5432"
     volumes:
       - pwrap-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -35,9 +37,9 @@ services:
       PGRST_DB_SCHEMAS: "public"
       PGRST_DB_ANON_ROLE: "pwrap_anon"
       PGRST_JWT_SECRET: "${PWRAP_JWT_SECRET:-super-dev-jwt-secret-please-change-me-32bytes}"
-      PGRST_OPENAPI_SERVER_PROXY_URI: "http://localhost:3000"
+      PGRST_OPENAPI_SERVER_PROXY_URI: "http://localhost:${PWRAP_PGRST_PORT:-3000}"
     ports:
-      - "3000:3000"
+      - "${PWRAP_PGRST_PORT:-3000}:3000"
     depends_on:
       postgres:
         condition: service_healthy

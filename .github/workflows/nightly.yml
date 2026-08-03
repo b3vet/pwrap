@@ -1,0 +1,106 @@
+name: Nightly
+
+# Tier 4 of the regression suite: the slower checks that would make every PR
+# painful but that catch things the per-PR tiers can't — a Postgres version
+# pwrap has never run against, a demo that rotted, a performance cliff.
+on:
+  schedule:
+    # 04:00 UTC daily.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  # The end-to-end demos double as documentation. If one breaks, the README is
+  # lying to somebody. They exit non-zero on failure, so they need no wrapper.
+  demos:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo: [todo-plus, rls-notes, geo-spots, branching]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: build pwrap-postgres image
+        run: docker compose build postgres
+      - run: cp .env.example .env
+      - name: start stack
+        run: |
+          docker compose up -d postgres postgrest
+          for _ in $(seq 1 60); do
+            docker compose exec -T postgres pg_isready -U pwrap -d pwrap && break
+            sleep 1
+          done
+      - run: make build
+      - name: run ${{ matrix.demo }}
+        env:
+          PWRAP_DATABASE_URL: postgres://pwrap:pwrap@localhost:5432/pwrap?sslmode=disable
+          PWRAP_BOOTSTRAP_TOKEN: dev-admin
+          PWRAP_AUTHENTICATOR_PASSWORD: authpw-dev
+          PWRAP_JWT_SECRET: super-dev-jwt-secret-please-change-me-32bytes
+        run: bash scripts/e2e.sh ${{ matrix.demo }}
+      - name: stack logs on failure
+        if: failure()
+        run: docker compose logs --tail 100
+
+  # pwrap claims Postgres 16+. Nothing verified that until now.
+  postgres-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["16", "17"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: build pwrap-postgres image on PG ${{ matrix.pg }}
+        run: docker build --build-arg PG_VERSION=${{ matrix.pg }} -t pwrap-postgres:local docker/postgres
+      - name: integration suite
+        run: go test -tags integration ./internal/integration/... -count=1
+
+  # Not a pass/fail gate — a recorded baseline, so a performance cliff is
+  # visible in the run history rather than discovered by a user.
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: build pwrap-postgres image
+        run: docker compose build postgres
+      - run: cp .env.example .env
+      - name: start stack
+        run: |
+          docker compose up -d postgres
+          for _ in $(seq 1 60); do
+            docker compose exec -T postgres pg_isready -U pwrap -d pwrap && break
+            sleep 1
+          done
+      - run: make build
+      - name: bench
+        env:
+          PWRAP_DATABASE_URL: postgres://pwrap:pwrap@localhost:5432/pwrap?sslmode=disable
+          PWRAP_BOOTSTRAP_TOKEN: dev-admin
+          PWRAP_AUTHENTICATOR_PASSWORD: authpw-dev
+          PWRAP_JWT_SECRET: super-dev-jwt-secret-please-change-me-32bytes
+        run: bash scripts/e2e.sh bench | tee bench-results.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results
+          path: bench-results.txt

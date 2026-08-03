@@ -42,3 +42,8 @@ sdk/py/*.egg-info/
 
 # Docker
 .docker-data/
+
+# Conformance suite scratch (reports, venv, logs)
+conformance/.reports/
+conformance/.venv/
+conformance/ts/node_modules/

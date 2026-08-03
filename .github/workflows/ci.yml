@@ -48,6 +48,42 @@ jobs:
       - name: testcontainers integration suite
         run: go test -tags integration ./internal/integration/... -count=1 -v
 
+  # Runs the same scenarios through all three SDKs against one live stack, then
+  # gates on conformance/check.py. This is what keeps the SDKs honest about
+  # parity: a scenario an SDK declares but doesn't cover fails the build.
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install python sdk
+        run: pip install -e sdk/py
+      - name: build pwrap-postgres image
+        run: docker compose build postgres
+      - name: build binaries
+        run: make build
+      - name: conformance suite
+        run: ./conformance/run.sh
+      - name: upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-reports
+          path: conformance/.reports/
+          if-no-files-found: warn
+
   lint:
     runs-on: ubuntu-latest
     steps:

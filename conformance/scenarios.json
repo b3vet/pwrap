@@ -1,0 +1,82 @@
+{
+  "$comment": [
+    "Canonical registry of cross-SDK behaviours. Each SDK's conformance runner",
+    "executes the scenarios listed for it and writes report-<sdk>.json; check.py",
+    "then fails the build if a runner skipped or omitted one it is declared to",
+    "support.",
+    "",
+    "`sdks` is the contract, not an aspiration: it lists the SDKs that implement",
+    "the scenario TODAY. Parity gaps live in `missing_from` with a reason, so a",
+    "gap is a tracked fact rather than silence. Closing a gap means moving the",
+    "SDK from `missing_from` into `sdks` — after which the gate enforces it."
+  ],
+  "version": 1,
+  "all_sdks": ["go", "ts", "py"],
+  "scenarios": [
+    {
+      "id": "table_crud",
+      "description": "insert, get, find by filter, update, count, delete; deleting twice is an error",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "table_batch",
+      "description": "insert_many returns ids in input order",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "vector_upsert_search",
+      "description": "upsert embeddings, search returns the nearest doc first with ascending distance",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "vector_dim_validation",
+      "description": "an embedding of the wrong dimension is rejected before touching the database",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "queue_enqueue_stats",
+      "description": "enqueue returns a positive job id and stats.available reflects it",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "geo_radius_nearest",
+      "description": "insert points, within_radius filters by distance, nearest ranks by proximity",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "rest_token",
+      "description": "issue a PostgREST JWT carrying the tenant role and sidecar url",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "schema_version_guard",
+      "description": "connecting to a project with no migrations applied fails with a clear error",
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "rls_with_user",
+      "description": "with_user scopes reads and writes to one user under a FORCE RLS policy",
+      "sdks": ["go", "py"],
+      "missing_from": {
+        "ts": "TypeScript SDK has no withUser; tracked in CHANGELOG known limitations"
+      }
+    },
+    {
+      "id": "realtime_subscribe",
+      "description": "subscribe receives an insert event for the project's schema",
+      "sdks": ["go", "ts"],
+      "missing_from": {
+        "py": "Python SDK has no subscribe; would need a websocket dependency"
+      }
+    },
+    {
+      "id": "matview_register_refresh",
+      "description": "register a matview, refresh it, and read last_refresh_at back",
+      "sdks": ["go"],
+      "missing_from": {
+        "ts": "TypeScript SDK has no matview helper",
+        "py": "Python SDK has no matview helper"
+      }
+    }
+  ]
+}
