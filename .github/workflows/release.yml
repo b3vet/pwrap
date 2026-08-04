@@ -47,7 +47,7 @@ jobs:
       # No registry-url: it writes an .npmrc pinning auth to NODE_AUTH_TOKEN,
       # which would shadow the OIDC credential. registry.npmjs.org is the
       # default anyway.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
