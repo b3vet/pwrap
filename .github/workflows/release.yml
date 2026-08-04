@@ -41,7 +41,7 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: "10"
       # No registry-url: it writes an .npmrc pinning auth to NODE_AUTH_TOKEN,
