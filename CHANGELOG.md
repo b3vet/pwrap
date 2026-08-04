@@ -63,6 +63,11 @@ First public release.
   compile; and `@neondatabase/serverless` is no longer bundled into
   `dist/neon.js` (215 KB → 388 B), restoring it to a genuinely optional
   dependency.
+- **TypeScript SDK realtime on Node 18 and 20.** `subscribe()` called the global
+  `WebSocket`, which Node only provides from v22, so it failed with
+  "WebSocket is not defined" on the versions `engines` claimed to support. It
+  now falls back to the optional `ws` package and, when neither is available,
+  says so and names the fix.
 - Upgraded CI to golangci-lint v2, which is required for Go 1.25 modules.
 
 ### Testing

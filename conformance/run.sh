@@ -98,8 +98,20 @@ log "starting pwrapd"
 # pwrapd exits, long after the script itself is done.
 ./bin/pwrapd >"$REPORT_DIR/pwrapd.log" 2>&1 </dev/null &
 PWRAPD_PID=$!
+# Escalate to SIGKILL rather than waiting indefinitely on a graceful shutdown.
+# pwrapd's realtime hub holds a LISTEN connection and can stall on SIGTERM if a
+# WebSocket client died mid-subscribe; a plain `kill` + `wait` then blocks
+# forever, and a CI runner reports it as an orphan process long after the suite
+# has finished printing its results.
 cleanup() {
+  [ -n "${PWRAPD_PID:-}" ] || return 0
   kill "$PWRAPD_PID" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    kill -0 "$PWRAPD_PID" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  echo "pwrapd did not exit on SIGTERM after 10s; killing" >&2
+  kill -9 "$PWRAPD_PID" 2>/dev/null || true
   wait "$PWRAPD_PID" 2>/dev/null || true
 }
 trap cleanup EXIT

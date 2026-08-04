@@ -19,5 +19,5 @@ export default defineConfig({
   // driver gets inlined into dist/neon.js — which ships a copy to every consumer,
   // makes the "not installed" error unreachable, and risks two live copies for
   // anyone who installs it themselves.
-  external: ["@neondatabase/serverless"],
+  external: ["@neondatabase/serverless", "ws"],
 });

@@ -57,10 +57,14 @@
     "postgres": "^3.4.4"
   },
   "peerDependencies": {
-    "@neondatabase/serverless": "^0.10.0"
+    "@neondatabase/serverless": "^0.10.0",
+    "ws": "^8.18.0"
   },
   "peerDependenciesMeta": {
     "@neondatabase/serverless": {
+      "optional": true
+    },
+    "ws": {
       "optional": true
     }
   },

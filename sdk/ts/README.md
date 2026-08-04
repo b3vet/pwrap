@@ -42,6 +42,9 @@ const near = await c.geo("places").withinRadius(2.3522, 48.8566, 2000, 10);
 for await (const ev of await c.subscribe({ table: "pwrap_documents" })) {
   console.log(ev.op, ev.after);
 }
+// Node exposes WebSocket globally only from v22. On Node 18 or 20, also
+// `npm i ws` — the SDK picks it up automatically. Everything except realtime
+// works on Node 18+ with no extra install.
 
 await c.close();
 ```

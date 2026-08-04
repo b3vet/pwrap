@@ -18,6 +18,40 @@ export interface SubscribeOpts {
 }
 
 /**
+ * Resolve a WebSocket constructor.
+ *
+ * Node only exposes `WebSocket` globally from v22; on 18 and 20 there is none,
+ * and a bare `new WebSocket(...)` fails with "WebSocket is not defined" — which
+ * says nothing about how to fix it. Fall back to the optional `ws` package
+ * (whose WebSocket implements addEventListener, so the rest of this file is
+ * unchanged), and otherwise throw something a reader can act on.
+ *
+ * Cached: resolution is per-process, not per-subscription.
+ */
+let wsCtor: Promise<typeof WebSocket> | undefined;
+
+function webSocketCtor(): Promise<typeof WebSocket> {
+  wsCtor ??= (async () => {
+    const globalWS = (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;
+    if (globalWS) return globalWS;
+    try {
+      // @ts-expect-error — `ws` is an optional peer dependency and may be absent.
+      const mod = await import("ws");
+      const ctor = (mod.WebSocket ?? mod.default) as typeof WebSocket | undefined;
+      if (ctor) return ctor;
+      throw new Error("`ws` did not export a WebSocket constructor");
+    } catch (cause) {
+      throw new Error(
+        "pwrap: realtime needs a WebSocket implementation. Node provides one globally " +
+          "from v22; on Node 18 or 20 install the optional `ws` package (`npm i ws`). " +
+          `Underlying error: ${(cause as Error).message}`,
+      );
+    }
+  })();
+  return wsCtor;
+}
+
+/**
  * Subscription is an AsyncIterable of ChangeEvents. Iterate it until the loop
  * terminates (close()/server hangup), or call close() to stop early.
  *
@@ -126,9 +160,10 @@ export class Subscription implements AsyncIterable<ChangeEvent> {
     this.close();
   }
 
-  private runOnce(onHello: () => void): Promise<"graceful" | "transient" | "permanent"> {
+  private async runOnce(onHello: () => void): Promise<"graceful" | "transient" | "permanent"> {
+    const WS = await webSocketCtor();
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.url);
+      const ws = new WS(this.url);
       this.ws = ws;
       let helloSeen = false;
 
