@@ -136,5 +136,13 @@ func run(logger *slog.Logger) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return httpSrv.Shutdown(shutdownCtx)
+	err = httpSrv.Shutdown(shutdownCtx)
+
+	// Stop the realtime hub before the deferred pool.Close() runs. The hub holds
+	// a dedicated LISTEN connection, and pool.Close() blocks until every
+	// connection is released — so without this pwrapd never exits on SIGTERM and
+	// every restart needs a SIGKILL.
+	srv.StopHub()
+
+	return err
 }

@@ -7,6 +7,7 @@ from .vector import Match, Vector, VECTOR_DIM
 from .queue import Queue, Stats
 from .geo import Feature, Geo
 from .rest import RestToken
+from .subscribe import ChangeEvent, Subscription, SubscriptionClosed
 
 __all__ = [
     "PwrapClient",
@@ -23,6 +24,9 @@ __all__ = [
     "Feature",
     "Geo",
     "RestToken",
+    "ChangeEvent",
+    "Subscription",
+    "SubscriptionClosed",
 ]
 
 SCHEMA_VERSION = "0001_init"

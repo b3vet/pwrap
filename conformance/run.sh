@@ -62,7 +62,7 @@ run_bounded() { # run_bounded <seconds> <cmd...>
 }
 
 rm -rf "$REPORT_DIR"
-mkdir -p "$REPORT_DIR"
+mkdir -p "$REPORT_DIR" "$REPORT_DIR/ws-fallback"
 
 log() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
@@ -159,6 +159,15 @@ for r in "${RUNNERS[@]}"; do
       ( cd sdk/ts        && run_bounded "$INSTALL_TIMEOUT" pnpm run build >/dev/null )                        || { status=1; continue; }
       ( cd conformance/ts && run_bounded "$INSTALL_TIMEOUT" pnpm install --reporter=silent )                  || { status=1; continue; }
       ( cd conformance/ts && run_bounded "$RUNNER_TIMEOUT"  pnpm start )                                      || status=1
+
+      # Re-run with the global WebSocket removed, which is what Node 18 and 20
+      # see. On a modern Node the first pass only ever exercises the global;
+      # without this the `ws` fallback would rot unnoticed until a user on an
+      # older runtime hit it. Report goes to a scratch dir so the parity gate
+      # still reads exactly one report per SDK.
+      log "conformance: typescript (ws fallback, no global WebSocket)"
+      ( cd conformance/ts && PWRAP_REPORT_DIR="$REPORT_DIR/ws-fallback" \
+          run_bounded "$RUNNER_TIMEOUT" pnpm start:no-global-ws ) || status=1
       ;;
     py)
       log "conformance: python"

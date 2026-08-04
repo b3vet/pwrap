@@ -27,7 +27,7 @@ An opinionated, all-in-one Postgres backend. One tool that gives a new project t
 
 **Track C (M13–M15):**
 - **Project branching** — `POST /v1/projects/:id/branches` creates a child project (fresh role + schema + baseline). `with_data: true` snapshots the parent's `pwrap_documents` / `embeddings` / `geo` / `matviews`. Post-fork edits are isolated; `pwrap branch sync` does idempotent merges.
-- **Python SDK** — `pip install pwrap`. Async via `asyncpg` + `httpx`. Mirrors Go/TS: `Table`, `Vector`, `Queue`, `Geo`, `with_user(...)` for RLS, `issue_rest_token(...)`.
+- **Python SDK** — `pip install pwrap`. Async via `asyncpg` + `httpx` + `websockets`. Mirrors Go/TS: `Table`, `Vector`, `Queue`, `Geo`, `subscribe(...)` for realtime, `with_user(...)` for RLS, `issue_rest_token(...)`.
 - **Neon integration** — `pwrap neon branch create/list/delete` + `pwrap neon connection-uri` wrap the Neon Cloud API for per-PR previews. `PWRAP_NEON_BASE_URL` overrides for self-hosted Neon. See [docs/neon-integration.md](docs/neon-integration.md).
 
 **Path P (M23–M24) — Productionization:**
@@ -36,7 +36,7 @@ An opinionated, all-in-one Postgres backend. One tool that gives a new project t
 
 **Path R (M19–M22) — Realtime:**
 - **Change capture** — `pwrap_documents` writes are auto-captured by a trigger that records to `pwrap_change_log` and emits `pg_notify('pwrap_changes', …)`. `Client.EnableChangeCapture(ctx, "<table>")` opts a user table in.
-- **WebSocket subscriptions** — `GET /v1/subscribe?api_key=…&table=…&user_id=…` upgrades to WebSocket and pushes filtered events. `Client.Subscribe(ctx, …)` in Go, `client.subscribe(...)` (`AsyncIterable<ChangeEvent>`) in TS.
+- **WebSocket subscriptions** — `GET /v1/subscribe?api_key=…&table=…&user_id=…` upgrades to WebSocket and pushes filtered events. `Client.Subscribe(ctx, …)` in Go, `client.subscribe(...)` (`AsyncIterable<ChangeEvent>`) in TS, `await c.subscribe(...)` in Python.
 - **Live demo** — [examples/realtime-todos](examples/realtime-todos): a Go web app + embedded HTML/JS that subscribes from the browser directly. Open the page in two tabs and watch inserts/updates/deletes sync live with zero polling.
 
 ## Architecture
@@ -184,6 +184,14 @@ async def main() -> None:
         # PostgREST JWT
         tok = await c.issue_rest_token(user_id="alice")
         print(tok.token)
+
+        # Realtime — resolves after the server's hello frame, so the next
+        # write can't race ahead of the subscription
+        sub = await c.subscribe(table="pwrap_documents")
+        async for ev in sub:
+            print(ev.op, ev.row_id)
+            break
+        await sub.close()
 
 asyncio.run(main())
 ```

@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 
 	tenantmigrations "github.com/b3vet/pwrap/migrations/tenant"
 	"github.com/b3vet/pwrap/sdk/go/pwrap"
@@ -343,5 +344,32 @@ func TestMigrations_ApplyIsIdempotent(t *testing.T) {
 		if err := a.do(ctx, "POST", fmt.Sprintf("/v1/projects/%s/migrations", pid), nil, nil); err != nil {
 			t.Fatalf("re-apply migrations (pass %d): %v", i, err)
 		}
+	}
+}
+
+// --- shutdown -----------------------------------------------------------------
+
+// The realtime hub holds a dedicated LISTEN connection, and pgxpool.Close blocks
+// until every connection is released. pwrapd shipped without calling StopHub, so
+// SIGTERM never completed and each restart needed a SIGKILL — invisible in tests
+// because nothing exercised the shutdown ordering.
+func TestShutdown_StopHubReleasesThePoolConnection(t *testing.T) {
+	ctx := context.Background()
+
+	stack, err := NewStack(ctx)
+	if err != nil {
+		t.Fatalf("stack: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		stack.Close() // StopHub then pool.Close, the order pwrapd must use
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("shutdown blocked for 30s — the hub is still holding a pool connection")
 	}
 }

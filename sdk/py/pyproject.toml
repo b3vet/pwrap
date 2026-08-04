@@ -9,6 +9,11 @@ authors = [{ name = "Berke Ucvet" }]
 dependencies = [
     "asyncpg>=0.29",
     "httpx>=0.27",
+    # Realtime subscriptions. A hard dependency rather than an extra, matching
+    # the Go SDK, which also carries its websocket client outright — realtime is
+    # a headline feature, not a niche add-on. Imported lazily so the cost is only
+    # paid by callers of subscribe().
+    "websockets>=12",
 ]
 
 [project.optional-dependencies]

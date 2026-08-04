@@ -45,6 +45,10 @@ First public release.
 - **Neon integration** — `pwrap neon branch create/list/delete` and
   `connection-uri` for per-PR preview databases.
 - **SDKs** for Go, TypeScript and Python, kept at feature parity.
+- **Python realtime** — `await client.subscribe(table=..., user_id=...)` returns an
+  async iterator of `ChangeEvent`, reconnecting with exponential backoff and
+  stopping on an auth rejection. Resolves only after the server's hello frame, so
+  a write issued immediately afterwards can't race ahead of the subscription.
 
 ### Fixed
 
@@ -54,6 +58,11 @@ First public release.
   depth.
 - Corrected the Go module path to `github.com/b3vet/pwrap`; the previous path
   pointed at a repository that does not exist, so the SDK could not be fetched.
+- **pwrapd never exited on SIGTERM.** The realtime hub holds a dedicated LISTEN
+  connection and `pool.Close()` blocks until every connection is released, but
+  the daemon never called `StopHub()` — so shutdown hung indefinitely and every
+  restart or rolling deploy required a SIGKILL. `server.go` documented the
+  ordering requirement; only the test harness honoured it.
 - `sql apply` now notifies PostgREST to reload its schema cache. A table created
   through the escape hatch was invisible over REST — 404 on every request — until
   an unrelated project create or delete happened to trigger a reload.
@@ -93,8 +102,8 @@ First public release.
 - Branching copies built-in tables only. User-defined tables need their
   migrations re-run against the branch, then an explicit `sync`.
 - The SDKs are not yet at full parity. Relative to Go: TypeScript lacks
-  `withUser` (RLS scoping) and `matview`; Python lacks `subscribe`, `matview`
-  and the change-capture toggles. Each gap is recorded in
+  `withUser` (RLS scoping); neither TypeScript nor Python has a `matview`
+  helper or the change-capture toggles. Each gap is recorded in
   [`conformance/scenarios.json`](conformance/scenarios.json) and printed on every
   conformance run.
 

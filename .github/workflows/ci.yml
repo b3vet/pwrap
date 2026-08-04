@@ -67,7 +67,7 @@ jobs:
           version: "10"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -115,6 +115,13 @@ jobs:
     defaults:
       run:
         working-directory: sdk/ts
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares engines >= 18, and the two versions differ in a
+        # way that matters: Node 22 provides a global WebSocket, Node 20 does
+        # not. Building on both keeps that promise honest.
+        node: ["20", "22"]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -122,7 +129,7 @@ jobs:
           version: "10"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ matrix.node }}
           cache: pnpm
           cache-dependency-path: sdk/ts/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile

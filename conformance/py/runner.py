@@ -240,6 +240,20 @@ async def scenario_rls_with_user() -> None:
                 assert len(rows) == want, f"{label} saw {len(rows)} rows, want {want}"
 
 
+async def scenario_realtime_subscribe() -> None:
+    async with provisioned("conf-realtime") as (_, key, _a):
+        async with await PwrapClient.connect(api_key=key, control_url=CONTROL_URL) as c:
+            sub = await c.subscribe(table="pwrap_documents")
+            try:
+                # subscribe() returns only after the hello frame, so this insert
+                # cannot race ahead of the subscription.
+                await c.table("live").insert({"marker": "realtime"})
+                event = await asyncio.wait_for(sub.__anext__(), timeout=30)
+                assert event.op.upper() == "INSERT", f"op = {event.op}, want INSERT"
+            finally:
+                await sub.close()
+
+
 SCENARIOS: dict[str, Callable[[], Awaitable[None]]] = {
     "table_crud": scenario_table_crud,
     "table_batch": scenario_table_batch,
@@ -250,6 +264,7 @@ SCENARIOS: dict[str, Callable[[], Awaitable[None]]] = {
     "rest_token": scenario_rest_token,
     "schema_version_guard": scenario_schema_version_guard,
     "rls_with_user": scenario_rls_with_user,
+    "realtime_subscribe": scenario_realtime_subscribe,
 }
 
 

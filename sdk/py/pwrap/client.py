@@ -14,6 +14,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .geo import Geo
     from .queue import Queue
     from .rest import RestToken
+    from .subscribe import Subscription
     from .table import Table
     from .vector import Vector
 
@@ -206,6 +207,40 @@ class PwrapClient:
     ) -> "RestToken":
         from .rest import issue_rest_token
         return await issue_rest_token(self, user_id=user_id, ttl_seconds=ttl_seconds)
+
+    async def subscribe(
+        self,
+        *,
+        table: Optional[str] = None,
+        user_id: Optional[str] = None,
+        timeout: float = 30.0,
+    ) -> "Subscription":
+        """Subscribe to change events; returns an async iterator of ChangeEvent.
+
+        Mirrors the Go SDK's ``Subscribe`` and the TS SDK's ``subscribe``. Does
+        not return until the server's hello frame arrives, so a write issued
+        straight afterwards cannot race ahead of the subscription:
+
+        .. code-block:: python
+
+            sub = await c.subscribe(table="pwrap_documents")
+            async for ev in sub:
+                print(ev.op, ev.row_id)
+
+        ``user_id`` narrows to changes carrying that jwt claim. Close with
+        ``await sub.close()``, or use it as an async context manager.
+        """
+        from .subscribe import Subscription
+
+        sub = Subscription(
+            control_url=self._control_url,
+            api_key=self._api_key,
+            table=table,
+            # Default to this client's RLS scope when it has one, so
+            # `c.with_user("alice").subscribe()` does the expected thing.
+            user_id=user_id if user_id is not None else self._user_id,
+        )
+        return await sub._start(timeout=timeout)
 
     # ---- internals exposed to sibling modules ----------------------------
 
