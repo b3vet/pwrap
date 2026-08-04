@@ -33,19 +33,31 @@ jobs:
       run:
         working-directory: sdk/ts
     permissions:
-      # Required for npm provenance attestation.
+      # OIDC token for npm trusted publishing. There is deliberately no
+      # NPM_TOKEN anywhere in this job: npm is retiring 2FA-bypass tokens —
+      # they lose sensitive account/package actions from August 2026 and stop
+      # publishing entirely around January 2027 — so a long-lived token is a
+      # dead end, not a shortcut.
       id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
           version: "10"
+      # No registry-url: it writes an .npmrc pinning auth to NODE_AUTH_TOKEN,
+      # which would shadow the OIDC credential. registry.npmjs.org is the
+      # default anyway.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
           cache-dependency-path: sdk/ts/pnpm-lock.yaml
-          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14.0. Node 22 still
+      # ships npm 10, so the bundled CLI is too old to exchange the OIDC token.
+      - name: upgrade npm for trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run build
@@ -57,9 +69,9 @@ jobs:
             echo "tag $tag != package.json $pkg" >&2
             exit 1
           fi
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # No --provenance flag: trusted publishing attests automatically when the
+      # repository and package are both public.
+      - run: npm publish --access public
 
   pypi:
     needs: verify
