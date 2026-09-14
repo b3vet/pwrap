@@ -71,6 +71,13 @@ jobs:
           fi
       # No --provenance flag: trusted publishing attests automatically when the
       # repository and package are both public.
+      #
+      # This needs the package's trusted publisher to allow the `npm publish`
+      # action. Configurations created from 2026-09-03 default to `npm stage
+      # publish` ONLY, and a stage-only config fails here — so if this job
+      # errors on permissions, check the allowed actions on
+      # https://www.npmjs.com/package/@pwrap/sdk/access before touching anything
+      # in this file.
       - run: npm publish --access public
 
   pypi:
