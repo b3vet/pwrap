@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional, TYPE_CHECKING
 
 import asyncpg
@@ -19,8 +20,33 @@ if TYPE_CHECKING:  # pragma: no cover
     from .vector import Vector
 
 DEFAULT_CONTROL_URL = "http://localhost:8080"
+
+# Re-exchange this far before the credential expires. Credentials are minted with
+# a server-enforced VALID UNTIL, so arriving late means the pool is already dead;
+# the lead has to cover the exchange plus opening a new pool.
+REFRESH_LEAD = timedelta(minutes=2)
+# Never sleep less than this, so a clock skew or an already-stale expiry cannot
+# turn the loop into a spin.
+_MIN_SLEEP = 30.0
+# Give in-flight queries a moment on the old pool before closing it.
+_OLD_POOL_GRACE = 5.0
 # Imported at use site to dodge the import cycle with __init__.py.
 _SCHEMA_VERSION = "0001_init"
+
+
+class _PoolRef:
+    """Mutable holder for the live pool.
+
+    Credentials now expire server-side, so the pool is replaced periodically.
+    Derived clients from ``with_user`` share this holder rather than a pool
+    snapshot — otherwise the first refresh would leave them talking to a pool
+    whose role Postgres has already stopped accepting.
+    """
+
+    __slots__ = ("pool",)
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self.pool = pool
 
 
 @dataclass
@@ -46,7 +72,7 @@ class PwrapClient:
     def __init__(
         self,
         *,
-        pool: asyncpg.Pool,
+        pool: asyncpg.Pool | "_PoolRef",
         http: httpx.AsyncClient,
         control_url: str,
         api_key: str,
@@ -54,7 +80,9 @@ class PwrapClient:
         expires_at: datetime,
         user_id: Optional[str] = None,
     ) -> None:
-        self._pool = pool
+        self._poolref = pool if isinstance(pool, _PoolRef) else _PoolRef(pool)
+        self._refresh_task: Optional[asyncio.Task] = None
+        self._closed = False
         self._http = http
         self._control_url = control_url.rstrip("/")
         self._api_key = api_key
@@ -107,7 +135,7 @@ class PwrapClient:
         pool = await asyncpg.create_pool(dsn=conn.dsn, min_size=1, max_size=10)
         # asyncpg returns vector/geometry columns as their server text representation
         # by default — that's fine for our SDK (we only emit them as strings).
-        return cls(
+        client = cls(
             pool=pool,
             http=http,
             control_url=control_url,
@@ -115,10 +143,77 @@ class PwrapClient:
             schema=conn.schema,
             expires_at=conn.expires_at,
         )
+        client._start_refresh()
+        return client
 
     async def close(self) -> None:
-        await self._pool.close()
+        """Stop refreshing and release the pool. Call once, on the client
+        returned by ``connect`` — clients from ``with_user`` share its pool."""
+        self._closed = True
+        task, self._refresh_task = self._refresh_task, None
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        await self._poolref.pool.close()
         await self._http.aclose()
+
+    # ---- credential refresh ----------------------------------------------
+
+    def _start_refresh(self) -> None:
+        """Begin re-exchanging the API key before the current DSN expires.
+
+        Only the client from ``connect`` runs this; derived clients share its
+        pool holder and would otherwise each open their own pool.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # pragma: no cover - connect() is always awaited
+            return
+        self._refresh_task = loop.create_task(self._refresh_loop())
+
+    async def _refresh_loop(self) -> None:
+        while not self._closed:
+            delay = (self._expires_at - datetime.now(timezone.utc) - REFRESH_LEAD).total_seconds()
+            try:
+                await asyncio.sleep(max(delay, _MIN_SLEEP))
+                if self._closed:
+                    return
+                await self._refresh()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                # The current pool keeps working until its role actually
+                # expires, so a failed attempt is worth retrying rather than
+                # tearing the client down.
+                await asyncio.sleep(60)
+
+    async def _refresh(self) -> None:
+        """Exchange for fresh credentials and swap the pool in place."""
+        resp = await self._http.post(
+            self._control_url + "/v1/connection",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        new_pool = await asyncpg.create_pool(dsn=body["dsn"], min_size=1, max_size=10)
+
+        old = self._poolref.pool
+        # Swap before closing: every handle reads through the holder, so this is
+        # the moment new work starts using the new credentials.
+        self._poolref.pool = new_pool
+        self._expires_at = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
+
+        async def _close_old() -> None:
+            await asyncio.sleep(_OLD_POOL_GRACE)
+            try:
+                await old.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        asyncio.create_task(_close_old())
 
     async def __aenter__(self) -> "PwrapClient":
         return self
@@ -138,8 +233,12 @@ class PwrapClient:
 
     @property
     def pool(self) -> asyncpg.Pool:
-        """Raw asyncpg pool — escape hatch for arbitrary SQL."""
-        return self._pool
+        """Raw asyncpg pool — escape hatch for arbitrary SQL.
+
+        Replaced on credential refresh, so hold the client rather than caching
+        this value across an expiry boundary.
+        """
+        return self._poolref.pool
 
     @property
     def user_id(self) -> Optional[str]:
@@ -155,7 +254,7 @@ class PwrapClient:
         The derived client shares the underlying pool — don't call ``close`` on it.
         """
         return PwrapClient(
-            pool=self._pool,
+            pool=self._poolref,
             http=self._http,
             control_url=self._control_url,
             api_key=self._api_key,
@@ -171,9 +270,9 @@ class PwrapClient:
         fn: Callable[[asyncpg.Connection], Awaitable[Any]],
     ) -> Any:
         if self._user_id is None:
-            async with self._pool.acquire() as conn:
+            async with self._poolref.pool.acquire() as conn:
                 return await fn(conn)
-        async with self._pool.acquire() as conn:
+        async with self._poolref.pool.acquire() as conn:
             async with conn.transaction():
                 claims = json.dumps({"user_id": self._user_id})
                 await conn.execute(
@@ -258,6 +357,6 @@ class PwrapClient:
 
     # iterator used internally to read rows; left here so type checkers see it
     async def _iter_rows(self, query: str, *args: Any) -> AsyncIterator[asyncpg.Record]:  # pragma: no cover
-        async with self._pool.acquire() as conn:
+        async with self._poolref.pool.acquire() as conn:
             async for row in conn.cursor(query, *args):
                 yield row

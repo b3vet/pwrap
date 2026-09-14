@@ -157,6 +157,11 @@ for r in "${RUNNERS[@]}"; do
       # different from what was tested locally.
       ( cd sdk/ts        && run_bounded "$INSTALL_TIMEOUT" pnpm install --frozen-lockfile --reporter=silent ) || { status=1; continue; }
       ( cd sdk/ts        && run_bounded "$INSTALL_TIMEOUT" pnpm run build >/dev/null )                        || { status=1; continue; }
+      # Drop the linked copy first. `file:` dependencies are COPIED into the
+      # store, not symlinked, and pnpm reuses that copy when the version spec
+      # has not changed — so a rebuilt SDK can be silently ignored and the
+      # suite ends up certifying a stale build.
+      rm -rf conformance/ts/node_modules/.pnpm/@pwrap+sdk* conformance/ts/node_modules/@pwrap
       ( cd conformance/ts && run_bounded "$INSTALL_TIMEOUT" pnpm install --reporter=silent )                  || { status=1; continue; }
       ( cd conformance/ts && run_bounded "$RUNNER_TIMEOUT"  pnpm start )                                      || status=1
 

@@ -104,3 +104,41 @@ jobs:
         with:
           name: bench-results
           path: bench-results.txt
+
+  # Proving a credential refresh happened means outliving a credential, which is
+  # too slow for the per-PR suite. Nightly is where that time is affordable.
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: true
+      - uses: pnpm/action-setup@v5
+        with:
+          version: "10"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: install python sdk
+        run: pip install -e sdk/py
+      - name: build pwrap-postgres image
+        run: docker compose build postgres
+      - run: cp .env.example .env
+      - run: make build
+      - name: build ts sdk + link
+        run: |
+          cd sdk/ts && pnpm install --frozen-lockfile && pnpm run build
+          cd ../../conformance/ts && pnpm install
+      - name: credential refresh (go, ts, py)
+        run: ./scripts/refresh-check.sh go ts py
+      - name: logs on failure
+        if: failure()
+        run: |
+          tail -80 /tmp/refresh-pwrapd.log 2>/dev/null || true
+          docker compose logs --tail 50 || true

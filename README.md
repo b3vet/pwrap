@@ -52,7 +52,7 @@ Hybrid: SDKs talk to Postgres directly on the hot path; a thin control plane own
 
 On project create, `pwrapd` provisions a Postgres role + schema (`p_<slug>`). On bootstrap, the SDK exchanges its API key for a scoped DSN and caches it until expiry.
 
-> **Credential lifetime.** The DSN returned by `/v1/connection` carries the tenant role's *stable* password, and its `expires_at` (24h) is a refresh hint for the SDK — nothing enforces it server-side. An issued DSN therefore keeps working past `expires_at`, and **revoking the API key does not revoke a DSN already handed out.** Rotating per-issue credentials are on the roadmap; until then, treat an issued DSN as a long-lived secret. See [SECURITY.md](SECURITY.md).
+> **Credential lifetime.** Every `/v1/connection` exchange mints its own Postgres login role with `VALID UNTIL` set to the TTL (one hour by default, `PWRAP_DSN_TTL_SECONDS`). Postgres refuses the credential once it expires, so `expires_at` is a deadline rather than a hint, and the SDKs re-exchange before it passes. An already-open connection survives its role's expiry — Postgres only checks credentials at authentication — so expiry bounds new connections, not live sessions. See [SECURITY.md](SECURITY.md).
 
 ## Quickstart
 
@@ -234,10 +234,8 @@ const c = await PwrapClient.connect({
 
 ## Roadmap
 
-- **Rotating DSN credentials** — make `/v1/connection` genuinely short-lived, with server-side expiry and revocation. See the credential note above.
 - **SDK parity** — `withUser` and `matview` in TypeScript; `subscribe` and `matview` in Python.
 - **Scoped admin credentials** — replace the single `PWRAP_BOOTSTRAP_TOKEN` with scoped tokens and an audit trail.
-- **SDK DSN auto-refresh** — re-exchange the API key on expiry instead of caching until it fails.
 - **Declarative typed-schema API** — define tables in the SDK instead of via `sql apply`.
 - **Hosted SaaS console.**
 

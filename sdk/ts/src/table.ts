@@ -1,4 +1,4 @@
-import type { Sql } from "./client.js";
+import type { Sql, SqlRef } from "./client.js";
 
 export interface Document<T = Record<string, unknown>> {
   id: string;
@@ -15,7 +15,14 @@ type JSONLike = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /** JSONB document collection backed by pwrap_documents + GIN. */
 export class Table<T extends Record<string, unknown> = Record<string, unknown>> {
-  constructor(private sql: Sql, private collection: string) {}
+  constructor(private ref: SqlRef, private collection: string) {}
+
+  // Credentials expire, so the client swaps its connection periodically.
+  // Reading through the holder means a handle kept across that boundary
+  // keeps working instead of pointing at a closed pool.
+  private get sql(): Sql {
+    return this.ref.current;
+  }
 
   async insert(data: T): Promise<string> {
     const rows = await this.sql<{ id: string }[]>`

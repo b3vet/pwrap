@@ -1,4 +1,4 @@
-import type { Sql } from "./client.js";
+import type { Sql, SqlRef } from "./client.js";
 
 export interface EnqueueRequest {
   kind: string;
@@ -24,7 +24,14 @@ export interface Stats {
  * (or the River library directly) to register workers against the same tenant schema.
  */
 export class Queue {
-  constructor(private sql: Sql) {}
+  constructor(private ref: SqlRef) {}
+
+  // Credentials expire, so the client swaps its connection periodically.
+  // Reading through the holder means a handle kept across that boundary
+  // keeps working instead of pointing at a closed pool.
+  private get sql(): Sql {
+    return this.ref.current;
+  }
 
   async enqueue(req: EnqueueRequest): Promise<bigint> {
     if (!req.kind) throw new Error("pwrap: queue: kind is required");

@@ -1,4 +1,4 @@
-import type { Sql } from "./client.js";
+import type { Sql, SqlRef } from "./client.js";
 
 export interface Feature {
   id: string;
@@ -12,7 +12,14 @@ export interface Feature {
 
 /** PostGIS-backed feature collection. Geometries are stored in EPSG:4326 (WGS84). */
 export class Geo {
-  constructor(private sql: Sql, private collection: string) {}
+  constructor(private ref: SqlRef, private collection: string) {}
+
+  // Credentials expire, so the client swaps its connection periodically.
+  // Reading through the holder means a handle kept across that boundary
+  // keeps working instead of pointing at a closed pool.
+  private get sql(): Sql {
+    return this.ref.current;
+  }
 
   /**
    * Bulk-insert a batch of (lng, lat) points in a single round-trip.

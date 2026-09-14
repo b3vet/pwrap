@@ -1,4 +1,4 @@
-import type { Sql } from "./client.js";
+import type { Sql, SqlRef } from "./client.js";
 import { VectorDim } from "./constants.js";
 
 export interface Match {
@@ -8,7 +8,14 @@ export interface Match {
 }
 
 export class Vector {
-  constructor(private sql: Sql, private collection: string) {}
+  constructor(private ref: SqlRef, private collection: string) {}
+
+  // Credentials expire, so the client swaps its connection periodically.
+  // Reading through the holder means a handle kept across that boundary
+  // keeps working instead of pointing at a closed pool.
+  private get sql(): Sql {
+    return this.ref.current;
+  }
 
   /**
    * Bulk version of upsert. All embeddings must be VectorDim long; mismatched

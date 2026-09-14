@@ -40,17 +40,23 @@ It is the escape hatch for creating real tables that PostgREST can expose. The
 body is executed verbatim as the tenant role inside a transaction. It is
 admin-authenticated and must never be reachable with a project API key.
 
-### An issued DSN outlives the API key that minted it
+### DSN credentials are short-lived, but live sessions are not
 
-`POST /v1/connection` returns a DSN containing the tenant role's **stable**
-password. The `expires_at` field is a refresh hint for the SDK — nothing
-enforces it server-side. Consequences:
+`POST /v1/connection` mints a dedicated Postgres login role per exchange,
+inheriting the tenant role and carrying `VALID UNTIL` set to the TTL (one hour
+by default, `PWRAP_DSN_TTL_SECONDS`). Postgres refuses that credential once it
+expires, so a leaked DSN stops working on its own, and one client's credential
+can be dropped without touching anyone else's.
 
-- The DSN keeps working after `expires_at` passes.
-- **Revoking the API key does not revoke a DSN already handed out.**
+Two limits worth knowing:
 
-If a DSN leaks, rotate the tenant role's password in Postgres directly.
-Rotating per-issue credentials are on the roadmap.
+- **Expiry bounds new connections, not open ones.** Postgres checks credentials
+  at authentication, so a session already established keeps working until it
+  closes. Shrinking the TTL shortens the window for reuse of a stolen DSN; it
+  does not cut an attacker's existing connection.
+- **Revoking an API key does not immediately kill DSNs it minted.** Those roles
+  expire on their own schedule. To revoke now, drop the roles listed in
+  `ephemeral_roles` for that project.
 
 ### Tenant isolation is Postgres-native
 

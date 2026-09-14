@@ -37,23 +37,60 @@ interface ConnectionResp {
 /** Minimal surface of postgres.js we depend on; swappable via PwrapConfig.driver. */
 export type Sql = postgres.Sql<{}>;
 
+/**
+ * Mutable holder for the live connection.
+ *
+ * Credentials are minted per exchange and expire server-side, so the client
+ * replaces its connection before that happens. Handles read through this holder
+ * rather than capturing an Sql, so one kept across a refresh keeps working.
+ */
+export interface SqlRef {
+  current: Sql;
+}
+
+/** Re-exchange this long before expiry — enough to cover the call and reconnect. */
+const REFRESH_LEAD_MS = 2 * 60 * 1000;
+/** Floor, so a skewed clock or an already-stale expiry cannot spin the timer. */
+const MIN_REFRESH_DELAY_MS = 30 * 1000;
+/** Let in-flight queries drain from the old connection before ending it. */
+const OLD_SQL_GRACE_MS = 5 * 1000;
+
 export class PwrapClient {
   readonly schema: string;
-  readonly expiresAt: Date;
-  readonly sql: Sql;
+  expiresAt: Date;
+  private readonly ref: SqlRef;
+  private refreshTimer?: ReturnType<typeof setTimeout>;
+  private closed = false;
+
+  /** The live connection. Replaced on refresh — read it, don't cache it. */
+  get sql(): Sql {
+    return this.ref.current;
+  }
 
   // Underscore-prefixed to signal "used by rest.ts but not part of the public API."
   readonly _controlUrl: string;
   readonly _apiKey: string;
   readonly _fetch: typeof fetch;
+  // Kept so a refresh can open the replacement connection the same way the
+  // first one was opened — a Neon-backed client must stay Neon-backed.
+  private readonly _driver: (dsn: string) => Sql | Promise<Sql>;
 
-  private constructor(sql: Sql, schema: string, expiresAt: Date, controlUrl: string, apiKey: string, f: typeof fetch) {
-    this.sql = sql;
+  private constructor(
+    sql: Sql,
+    schema: string,
+    expiresAt: Date,
+    controlUrl: string,
+    apiKey: string,
+    f: typeof fetch,
+    driver: (dsn: string) => Sql | Promise<Sql>,
+  ) {
+    this.ref = { current: sql };
     this.schema = schema;
     this.expiresAt = expiresAt;
     this._controlUrl = controlUrl;
     this._apiKey = apiKey;
     this._fetch = f;
+    this._driver = driver;
   }
 
   /** Bootstrap: exchange the API key at `/v1/connection` and open a DB connection. */
@@ -84,7 +121,11 @@ export class PwrapClient {
 
     const driver = cfg.driver ?? ((dsn: string) => postgres(dsn, { prepare: false }));
     const sql = await driver(body.dsn);
-    return new PwrapClient(sql, body.schema, new Date(body.expires_at), controlUrl, cfg.apiKey, f);
+    const client = new PwrapClient(
+      sql, body.schema, new Date(body.expires_at), controlUrl, cfg.apiKey, f, driver,
+    );
+    client.scheduleRefresh();
+    return client;
   }
 
   /** Exchange the API key for a PostgREST JWT. */
@@ -110,22 +151,76 @@ export class PwrapClient {
    *   const notes = c.table<{ title: string; tags: string[] }>("notes");
    */
   table<T extends Record<string, unknown> = Record<string, unknown>>(collection: string): Table<T> {
-    return new Table<T>(this.sql, collection);
+    return new Table<T>(this.ref, collection);
   }
 
   vector(collection: string): Vector {
-    return new Vector(this.sql, collection);
+    return new Vector(this.ref, collection);
   }
 
   queue(): Queue {
-    return new Queue(this.sql);
+    return new Queue(this.ref);
   }
 
   geo(collection: string): Geo {
-    return new Geo(this.sql, collection);
+    return new Geo(this.ref, collection);
   }
 
   async close(): Promise<void> {
-    await this.sql.end({ timeout: 5 });
+    this.closed = true;
+    if (this.refreshTimer !== undefined) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
+    await this.ref.current.end({ timeout: 5 });
+  }
+
+  // --- credential refresh -----------------------------------------------
+
+  /**
+   * Re-exchange the API key before the current credentials expire.
+   *
+   * The timer is unref'd: a background refresh must never be the reason a
+   * short-lived script fails to exit.
+   */
+  private scheduleRefresh(): void {
+    if (this.closed) return;
+    const delay = Math.max(
+      this.expiresAt.getTime() - Date.now() - REFRESH_LEAD_MS,
+      MIN_REFRESH_DELAY_MS,
+    );
+    this.refreshTimer = setTimeout(() => {
+      void this.refresh();
+    }, delay);
+    this.refreshTimer.unref?.();
+  }
+
+  private async refresh(): Promise<void> {
+    if (this.closed) return;
+    try {
+      const res = await this._fetch(`${this._controlUrl}/v1/connection`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this._apiKey}` },
+      });
+      if (!res.ok) throw new Error(`pwrap: refresh failed: ${res.status} ${await res.text()}`);
+      const body = (await res.json()) as ConnectionResp;
+
+      const driver = this._driver;
+      const next = await driver(body.dsn);
+      const old = this.ref.current;
+      // Swap first: handles read through the holder, so new work picks up the
+      // new credentials immediately.
+      this.ref.current = next;
+      this.expiresAt = new Date(body.expires_at);
+
+      setTimeout(() => {
+        void old.end({ timeout: 5 }).catch(() => {});
+      }, OLD_SQL_GRACE_MS).unref?.();
+    } catch {
+      // The current connection stays usable until its role actually expires,
+      // so a failure is worth retrying rather than tearing the client down.
+    } finally {
+      this.scheduleRefresh();
+    }
   }
 }
