@@ -8,6 +8,29 @@ While the version is `0.x`, the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-14
+
+Maintenance release. No API changes — the SDK surface is identical to 0.1.0.
+
+### Changed
+
+- Dependencies: pgx 5.9.1 -> 5.10.0, River 0.34.0 -> 0.42.0, OpenTelemetry
+  1.41 -> 1.45, testcontainers 0.42 -> 0.44, and the GitHub Actions used by CI.
+- `semconv` moved to v1.43.0 to match OpenTelemetry 1.45's default resource.
+  Mismatched schema URLs make `resource.Merge` fail outright, so this had to move
+  with otel rather than after it.
+- TypeScript pinned to ^5.9.3. Versions 6 and 7 break `tsup`'s declaration
+  output — the JS still emits, so the package would publish with no `.d.ts` at
+  all. Revisit when tsup ships a rollup-plugin-dts built against TypeScript 7.
+
+### Fixed
+
+- The `rls-notes` end-to-end demo was flaky in CI, failing roughly four runs in
+  ten. PostgREST authenticates as a role that pwrapd creates at startup, so a
+  sidecar started first sat in a failed-auth retry loop that outlasted the demo.
+  `scripts/e2e.sh` now restarts it once the role exists, which fixes the nightly
+  and `make e2e-rls` alike.
+
 ## [0.1.0] - 2026-08-04
 
 First public release.
@@ -107,5 +130,6 @@ First public release.
   [`conformance/scenarios.json`](conformance/scenarios.json) and printed on every
   conformance run.
 
-[Unreleased]: https://github.com/b3vet/pwrap/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/b3vet/pwrap/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/b3vet/pwrap/releases/tag/v0.1.1
 [0.1.0]: https://github.com/b3vet/pwrap/releases/tag/v0.1.0
