@@ -8,6 +8,8 @@ While the version is `0.x`, the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-14
+
 ### Added
 
 - **`PWRAP_AUDIT_RETENTION_DAYS`** bounds the admin audit log. pwrapd prunes rows
@@ -265,7 +267,8 @@ First public release.
   [`conformance/scenarios.json`](conformance/scenarios.json) and printed on every
   conformance run.
 
-[Unreleased]: https://github.com/b3vet/pwrap/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/b3vet/pwrap/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/b3vet/pwrap/releases/tag/v0.2.1
 [0.2.0]: https://github.com/b3vet/pwrap/releases/tag/v0.2.0
 [0.1.1]: https://github.com/b3vet/pwrap/releases/tag/v0.1.1
 [0.1.0]: https://github.com/b3vet/pwrap/releases/tag/v0.1.0
