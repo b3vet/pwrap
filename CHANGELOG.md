@@ -59,6 +59,8 @@ While the version is `0.x`, the public API may change in any release.
   second run collided with the first and died with a bare `KeyError: id`. It now
   uses a unique name, reports what the control plane actually returned, and
   deletes its project on the way out.
+- `openapi.yaml` advertised `version: 0.1.0`. Its paths were updated for the
+  0.2.0 scope changes but the version field was not.
 - The `todo-plus` demo now fails when its teardown fails. It only logged before,
   which is how the project-delete bug above stayed green in CI.
 
