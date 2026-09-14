@@ -15,6 +15,7 @@ import (
 	"github.com/b3vet/pwrap/internal/controlplane"
 	"github.com/b3vet/pwrap/internal/controlplane/authsetup"
 	"github.com/b3vet/pwrap/internal/controlplane/migrations"
+	"github.com/b3vet/pwrap/internal/controlplane/tenancy"
 	"github.com/b3vet/pwrap/internal/store"
 	"github.com/b3vet/pwrap/internal/telemetry"
 	cpmigrations "github.com/b3vet/pwrap/migrations/controlplane"
@@ -109,6 +110,34 @@ func run(logger *slog.Logger) error {
 	} else if swept > 0 {
 		logger.Info("re-encrypted legacy pg_password rows", "count", swept)
 	}
+
+	// Sweep expired ephemeral login roles. Postgres already refuses them at
+	// VALID UNTIL, so this is housekeeping rather than enforcement — without it
+	// pg_authid grows by one row per client boot forever.
+	//
+	// A ticker rather than a queued job: pwrapd uses River only to run tenant
+	// migrations and has no worker of its own, and standing one up to drop a
+	// handful of roles would be more moving parts than the task deserves.
+	sweepCtx, stopSweep := context.WithCancel(ctx)
+	defer stopSweep()
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for {
+			// Sweep once at startup too: a restart is exactly when a backlog
+			// has had time to build up.
+			if n, err := tenancy.Sweep(sweepCtx, pool); err != nil {
+				logger.Warn("ephemeral role sweep failed", "err", err)
+			} else if n > 0 {
+				logger.Info("dropped expired ephemeral roles", "count", n)
+			}
+			select {
+			case <-sweepCtx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,

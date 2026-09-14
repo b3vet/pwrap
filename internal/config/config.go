@@ -39,6 +39,13 @@ type Config struct {
 	RestExternalURL       string
 	RestTokenTTLSeconds   int
 
+	// DSNTTLSeconds is how long a minted /v1/connection DSN stays valid. Each
+	// exchange creates a Postgres role with a matching VALID UNTIL, so this is a
+	// server-enforced deadline rather than advice to the client. Defaults to one
+	// hour; raise it only if refresh traffic is genuinely a problem, since it is
+	// also how long a leaked DSN keeps working.
+	DSNTTLSeconds int
+
 	// EncryptionKey is a base64-encoded 32-byte AES-256 key. When set, pwrapd
 	// encrypts the project pg_password at rest using envelope AES-GCM and
 	// re-encrypts any legacy plaintext rows at startup. When unset, pwrapd logs
@@ -74,6 +81,7 @@ func Load() (Config, error) {
 		RestExternalURL:       getenv("PWRAP_REST_URL", "http://localhost:3000"),
 		RestTokenTTLSeconds:   intEnv("PWRAP_REST_TOKEN_TTL_SECONDS", 3600),
 
+		DSNTTLSeconds:   intEnv("PWRAP_DSN_TTL_SECONDS", 3600),
 		EncryptionKey:   os.Getenv("PWRAP_ENCRYPTION_KEY"),
 		OTLPEndpoint:    os.Getenv("PWRAP_OTLP_ENDPOINT"),
 		OTLPInsecure:    boolEnv("PWRAP_OTLP_INSECURE", true),

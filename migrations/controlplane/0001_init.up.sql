@@ -59,3 +59,26 @@ CREATE TABLE IF NOT EXISTS migration_log (
 
 CREATE INDEX IF NOT EXISTS migration_log_project_id_idx
     ON migration_log (project_id, started_at DESC);
+
+-- Ephemeral login roles minted by POST /v1/connection.
+--
+-- Each exchange creates a short-lived Postgres role that inherits the project's
+-- tenant role and carries a server-enforced VALID UNTIL, so a leaked DSN stops
+-- working on its own rather than relying on a client to respect an expiry hint.
+-- This table is the sweeper's work list: pwrapd drops roles past their expiry
+-- and deletes the row. Rows are the record, Postgres is the authority — a row
+-- for a role that no longer exists is harmless and gets cleaned up.
+CREATE TABLE IF NOT EXISTS ephemeral_roles (
+    role_name  TEXT        PRIMARY KEY,
+    project_id UUID        NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- The sweeper's only query shape: everything already expired.
+CREATE INDEX IF NOT EXISTS ephemeral_roles_expires_at_idx
+    ON ephemeral_roles (expires_at);
+
+-- Dropping a project's roles is a per-project operation.
+CREATE INDEX IF NOT EXISTS ephemeral_roles_project_id_idx
+    ON ephemeral_roles (project_id);

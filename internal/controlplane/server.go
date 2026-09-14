@@ -58,7 +58,7 @@ func NewServer(logger *slog.Logger, pool *pgxpool.Pool, cfg config.Config) *Serv
 		logger.Warn("encryption-at-rest disabled — pg_password stored in cleartext", "err", err)
 	}
 	ks := keys.NewService(pool)
-	ts := tenancy.NewService(ps, cfg)
+	ts := tenancy.NewService(ps, cfg, pool)
 	mr := migrations.NewRunner(pool, ps, cfg)
 
 	var signer *authjwt.Signer

@@ -222,10 +222,22 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 			return fmt.Errorf("revoke authenticator: %w", err)
 		}
 	}
-	drops := []string{
+	// Ephemeral login roles are members of the tenant role, so they have to go
+	// first — Postgres refuses to drop a role other roles still depend on. Their
+	// rows disappear with the project via ON DELETE CASCADE, but the roles are
+	// Postgres objects and need dropping explicitly.
+	ephemeral, err := ephemeralRoleNames(ctx, tx, id)
+	if err != nil {
+		return fmt.Errorf("list ephemeral roles: %w", err)
+	}
+	drops := make([]string, 0, len(ephemeral)+2)
+	for _, r := range ephemeral {
+		drops = append(drops, fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(r)))
+	}
+	drops = append(drops,
 		fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, quoteIdent(p.PgSchema)),
 		fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(p.PgRole)),
-	}
+	)
 	for _, q := range drops {
 		if _, err := tx.Exec(ctx, q); err != nil {
 			return fmt.Errorf("drop: %w", err)
@@ -358,4 +370,23 @@ func quoteLiteral(s string) string {
 
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "SQLSTATE 23505")
+}
+
+// ephemeralRoleNames lists the short-lived roles minted for a project, so they
+// can be dropped before the tenant role they are members of.
+func ephemeralRoleNames(ctx context.Context, tx pgx.Tx, projectID uuid.UUID) ([]string, error) {
+	rows, err := tx.Query(ctx, `SELECT role_name FROM ephemeral_roles WHERE project_id = $1`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
