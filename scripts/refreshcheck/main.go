@@ -15,10 +15,15 @@ import (
 )
 
 func main() {
+	// Split out so deferred cleanup runs before the process exits.
+	os.Exit(run())
+}
+
+func run() int {
 	raw, err := os.ReadFile("/tmp/refresh-key.txt")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "read key:", err)
-		os.Exit(1)
+		return 1
 	}
 	wait := 105
 	if v, err := strconv.Atoi(os.Getenv("PWRAP_REFRESH_WAIT")); err == nil && v > 0 {
@@ -32,7 +37,7 @@ func main() {
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "connect:", err)
-		os.Exit(1)
+		return 1
 	}
 	defer c.Close()
 
@@ -42,18 +47,19 @@ func main() {
 	notes := c.Table("refreshcheck")
 	if _, err := notes.Insert(ctx, map[string]any{"n": 0}); err != nil {
 		fmt.Fprintln(os.Stderr, "first insert:", err)
-		os.Exit(1)
+		return 1
 	}
 	time.Sleep(time.Duration(wait) * time.Second)
 
 	if _, err := notes.Insert(ctx, map[string]any{"n": 1}); err != nil {
 		fmt.Fprintf(os.Stderr, "FAIL: insert after %ds: %v\n", wait, err)
-		os.Exit(1)
+		return 1
 	}
 	if !c.ExpiresAt().After(first) {
 		fmt.Fprintf(os.Stderr, "FAIL: expiry never advanced from %s\n", first.Format(time.RFC3339))
-		os.Exit(1)
+		return 1
 	}
 	fmt.Printf("  go: PASS (expiry %s -> %s)\n",
 		first.Format(time.RFC3339), c.ExpiresAt().Format(time.RFC3339))
+	return 0
 }
