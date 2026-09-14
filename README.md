@@ -188,6 +188,12 @@ async def main() -> None:
         tok = await c.issue_rest_token(user_id="alice")
         print(tok.token)
 
+        # Materialized views, against the pwrap_matviews registry
+        mv = c.matview("topic_counts")
+        await mv.register("SELECT data->>'topic' AS topic, count(*) FROM pwrap_documents GROUP BY 1")
+        await mv.refresh()
+        print((await mv.info()).last_refresh_at)
+
         # Realtime — resolves after the server's hello frame, so the next
         # write can't race ahead of the subscription
         sub = await c.subscribe(table="pwrap_documents")
@@ -217,6 +223,16 @@ const id = await notes.insert({ title: "hello", tags: ["a"] });
 await c.vector("notes").upsert(id, embedding /* number[1536] */);
 await c.queue().enqueue({ kind: "embed", args: { id } });
 
+// RLS-scoped: every query runs with request.jwt.claims set, so the same policy
+// covers the SDK and PostgREST. Shares the parent's connection — don't close it.
+const alice = c.withUser("alice");
+await alice.table("notes").insert({ user_id: "alice", title: "private" });
+
+// Materialized views, against the pwrap_matviews registry
+const mv = c.matview("topic_counts");
+await mv.register("SELECT data->>'topic' AS topic, count(*) FROM pwrap_documents GROUP BY 1");
+await mv.refresh();
+
 await c.close();
 ```
 
@@ -237,7 +253,6 @@ const c = await PwrapClient.connect({
 
 ## Roadmap
 
-- **SDK parity** — `withUser` and `matview` in TypeScript; `subscribe` and `matview` in Python.
 - **Declarative typed-schema API** — define tables in the SDK instead of via `sql apply`.
 - **Hosted SaaS console.**
 

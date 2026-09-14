@@ -17,19 +17,19 @@ type JSONLike = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 export class Table<T extends Record<string, unknown> = Record<string, unknown>> {
   constructor(private ref: SqlRef, private collection: string) {}
 
-  // Credentials expire, so the client swaps its connection periodically.
-  // Reading through the holder means a handle kept across that boundary
-  // keeps working instead of pointing at a closed pool.
-  private get sql(): Sql {
-    return this.ref.current;
+  // Everything goes through the ref rather than a captured Sql: the client
+  // swaps its connection when credentials near expiry, and a user-scoped ref
+  // additionally wraps each operation in a claims-carrying transaction.
+  private run<R>(fn: (sql: Sql) => Promise<R>): Promise<R> {
+    return this.ref.run(fn);
   }
 
   async insert(data: T): Promise<string> {
-    const rows = await this.sql<{ id: string }[]>`
+    const rows = await this.run((sql) => sql<{ id: string }[]>`
       INSERT INTO pwrap_documents (collection, data)
-      VALUES (${this.collection}, ${this.sql.json(data as JSONLike)})
+      VALUES (${this.collection}, ${sql.json(data as JSONLike)})
       RETURNING id
-    `;
+    `);
     return rows[0].id;
   }
 
@@ -41,61 +41,64 @@ export class Table<T extends Record<string, unknown> = Record<string, unknown>> 
    */
   async insertMany(items: T[]): Promise<string[]> {
     if (items.length === 0) return [];
-    const payload = this.sql.json(items as JSONLike);
-    const rows = await this.sql<{ id: string }[]>`
+    const rows = await this.run((sql) => sql<{ id: string }[]>`
       INSERT INTO pwrap_documents (collection, data)
       SELECT ${this.collection}, value
-        FROM jsonb_array_elements(${payload}::jsonb) WITH ORDINALITY AS u(value, ord)
+        FROM jsonb_array_elements(${sql.json(items as JSONLike)}::jsonb) WITH ORDINALITY AS u(value, ord)
        ORDER BY ord
       RETURNING id
-    `;
+    `);
     return rows.map((r) => r.id);
   }
 
   async get(id: string): Promise<Document<T> | null> {
-    const rows = await this.sql<Document<T>[]>`
+    const rows = await this.run((sql) => sql<Document<T>[]>`
       SELECT id, data, created_at, updated_at
       FROM pwrap_documents
       WHERE collection = ${this.collection} AND id = ${id}
-    `;
+    `);
     return rows[0] ?? null;
   }
 
   /** JSONB containment. Pass an object subset; rows whose data contains it match. */
   async find(filter: Partial<T> = {} as Partial<T>, limit = 100): Promise<Document<T>[]> {
-    return this.sql<Document<T>[]>`
+    return this.run((sql) => sql<Document<T>[]>`
       SELECT id, data, created_at, updated_at
       FROM pwrap_documents
       WHERE collection = ${this.collection}
-        AND data @> ${this.sql.json(filter as JSONLike)}
+        AND data @> ${sql.json(filter as JSONLike)}
       ORDER BY created_at DESC
       LIMIT ${limit}
-    `;
+    `);
   }
 
   async update(id: string, patch: Partial<T>): Promise<boolean> {
-    const res = await this.sql`
-      UPDATE pwrap_documents
-         SET data = data || ${this.sql.json(patch as JSONLike)},
-             updated_at = now()
-       WHERE collection = ${this.collection} AND id = ${id}
-    `;
-    return res.count > 0;
+    return this.run(async (sql) => {
+      const res = await sql`
+        UPDATE pwrap_documents
+           SET data = data || ${sql.json(patch as JSONLike)},
+               updated_at = now()
+         WHERE collection = ${this.collection} AND id = ${id}
+      `;
+      return res.count > 0;
+    });
   }
 
   async delete(id: string): Promise<boolean> {
-    const res = await this.sql`
-      DELETE FROM pwrap_documents WHERE collection = ${this.collection} AND id = ${id}
-    `;
-    return res.count > 0;
+    return this.run(async (sql) => {
+      const res = await sql`
+        DELETE FROM pwrap_documents WHERE collection = ${this.collection} AND id = ${id}
+      `;
+      return res.count > 0;
+    });
   }
 
   async count(filter: Partial<T> = {} as Partial<T>): Promise<number> {
-    const rows = await this.sql<{ count: bigint }[]>`
+    const rows = await this.run((sql) => sql<{ count: bigint }[]>`
       SELECT COUNT(*) FROM pwrap_documents
       WHERE collection = ${this.collection}
-        AND data @> ${this.sql.json(filter as JSONLike)}
-    `;
+        AND data @> ${sql.json(filter as JSONLike)}
+    `);
     return Number(rows[0].count);
   }
 }

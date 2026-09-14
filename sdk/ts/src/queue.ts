@@ -26,11 +26,11 @@ export interface Stats {
 export class Queue {
   constructor(private ref: SqlRef) {}
 
-  // Credentials expire, so the client swaps its connection periodically.
-  // Reading through the holder means a handle kept across that boundary
-  // keeps working instead of pointing at a closed pool.
-  private get sql(): Sql {
-    return this.ref.current;
+  // Everything goes through the ref rather than a captured Sql: the client
+  // swaps its connection when credentials near expiry, and a user-scoped ref
+  // additionally wraps each operation in a claims-carrying transaction.
+  private run<R>(fn: (sql: Sql) => Promise<R>): Promise<R> {
+    return this.ref.run(fn);
   }
 
   async enqueue(req: EnqueueRequest): Promise<bigint> {
@@ -39,20 +39,23 @@ export class Queue {
     const queue = req.queue ?? "default";
     const priority = req.priority ?? 1;
     const maxAttempts = req.maxAttempts ?? 25;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const argsParam = this.sql.json(args as any);
-    const rows = await this.sql<{ id: bigint }[]>`
+    const rows = await this.run((sql) => sql<{ id: bigint }[]>`
       INSERT INTO river_job (kind, args, queue, priority, max_attempts)
-      VALUES (${req.kind}, ${argsParam}, ${queue}, ${priority}, ${maxAttempts})
+      VALUES (${req.kind},
+              ${
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                sql.json(args as any)
+              },
+              ${queue}, ${priority}, ${maxAttempts})
       RETURNING id
-    `;
+    `);
     return rows[0].id;
   }
 
   async stats(): Promise<Stats> {
-    const rows = await this.sql<{ state: string; count: bigint }[]>`
+    const rows = await this.run((sql) => sql<{ state: string; count: bigint }[]>`
       SELECT state::text, COUNT(*) FROM river_job GROUP BY state
-    `;
+    `);
     const out: Stats = { available: 0, running: 0, scheduled: 0, completed: 0, discarded: 0, retryable: 0 };
     for (const r of rows) {
       const key = r.state as keyof Stats;

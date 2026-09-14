@@ -72,6 +72,9 @@ func (mv *Matview) Register(ctx context.Context, definition string) error {
 	); err != nil {
 		return fmt.Errorf("pwrap: matview: create: %w", err)
 	}
+	if err := mv.chownToTenant(ctx, quoted); err != nil {
+		return err
+	}
 	// Unique index is required for REFRESH CONCURRENTLY; we don't synthesize one
 	// (can't know the right columns). Users pick that up in a follow-up SQL if needed.
 	_, err = mv.client.Pool().Exec(ctx, `
@@ -84,6 +87,29 @@ func (mv *Matview) Register(ctx context.Context, definition string) error {
 	`, mv.name, definition, checksum)
 	if err != nil {
 		return fmt.Errorf("pwrap: matview: registry: %w", err)
+	}
+	return nil
+}
+
+// chownToTenant hands a freshly created matview to the role that owns the schema.
+//
+// Whoever runs CREATE owns the result, and clients connect as a credential that
+// expires within the hour. Left alone, the matview would outlive its owner:
+// REFRESH requires ownership, so the next credential — including the same
+// client's own, after its hourly rotation — would be refused with "must be
+// owner". The schema's owner is the project's tenant role, it outlives every
+// credential minted for it, and every ephemeral role inherits it, so ownership
+// there is what makes the matview usable by any of the project's clients.
+func (mv *Matview) chownToTenant(ctx context.Context, quoted string) error {
+	var owner string
+	if err := mv.client.Pool().QueryRow(ctx,
+		`SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = current_schema()`,
+	).Scan(&owner); err != nil {
+		return fmt.Errorf("pwrap: matview: resolve schema owner: %w", err)
+	}
+	if _, err := mv.client.Pool().Exec(ctx,
+		`ALTER MATERIALIZED VIEW `+quoted+` OWNER TO `+quoteIdent(owner)); err != nil {
+		return fmt.Errorf("pwrap: matview: set owner: %w", err)
 	}
 	return nil
 }

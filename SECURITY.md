@@ -63,8 +63,15 @@ Refusals are recorded too — a run of denials is exactly what an investigation
 wants to see. Reads are skipped so the trail is not drowned in list calls.
 
 The table stores the token *prefix*, never the token, so the log identifies the
-actor without being worth stealing. Nothing prunes it yet; on a busy deployment
-it grows without bound.
+actor without being worth stealing.
+
+pwrapd prunes the log on its ten-minute housekeeping pass, dropping rows older
+than `PWRAP_AUDIT_RETENTION_DAYS` (90 by default). Pick the window your
+compliance obligations need rather than the one that keeps the table small — a
+breach is usually discovered long after it happens, and a trail that has already
+been pruned answers nothing. Setting the value to `0` disables pruning and keeps
+rows forever, which is a legitimate choice as long as someone is watching the
+table's size.
 
 ### `/v1/projects/{id}/sql` executes arbitrary SQL by design
 

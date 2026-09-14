@@ -42,6 +42,25 @@ async function admin(method: string, path: string, body?: unknown): Promise<any>
   return text ? JSON.parse(text) : null;
 }
 
+/** POST raw SQL to the project's escape hatch. Unlike admin(), the body is not JSON. */
+async function adminSQL(projectId: string, sql: string): Promise<void> {
+  const res = await fetch(`${CONTROL_URL}/v1/projects/${projectId}/sql`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/sql" },
+    body: sql,
+  });
+  if (!res.ok) throw new Error(`POST /sql: ${res.status} ${await res.text()}`);
+}
+
+const RLS_POLICY_SQL = `
+ALTER TABLE pwrap_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pwrap_documents FORCE  ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p ON pwrap_documents;
+CREATE POLICY p ON pwrap_documents
+    USING      (data->>'user_id' = NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'user_id')
+    WITH CHECK (data->>'user_id' = NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'user_id');
+`;
+
 async function createProject(name: string): Promise<string> {
   // Unique suffix so reruns against a live stack don't 409.
   const p = await admin("POST", "/v1/projects", { name: `${name}-${randomUUID().slice(0, 8)}` });
@@ -199,6 +218,66 @@ const scenarios: Record<string, () => Promise<void>> = {
         String((err as Error).message).toLowerCase().includes("migrat"),
         `error ${(err as Error).message} does not mention migrations`,
       );
+    } finally {
+      await admin("DELETE", `/v1/projects/${projectId}`).catch(() => {});
+    }
+  },
+
+  rls_with_user: () =>
+    withClient("conf-rls", async (c, projectId) => {
+      await adminSQL(projectId, RLS_POLICY_SQL);
+
+      const alice = c.withUser("alice");
+      const bob = c.withUser("bob");
+      await alice.table("notes").insert({ user_id: "alice", n: 1 });
+      await alice.table("notes").insert({ user_id: "alice", n: 2 });
+      await bob.table("notes").insert({ user_id: "bob", n: 99 });
+
+      for (const [label, client, want] of [
+        ["alice", alice, 2],
+        ["bob", bob, 1],
+        ["unscoped", c, 0],
+      ] as const) {
+        const rows = await client.table("notes").find();
+        assert(rows.length === want, `${label} saw ${rows.length} rows, want ${want}`);
+      }
+    }),
+
+  matview_register_refresh: () =>
+    withClient("conf-matview", async (c) => {
+      await c.table("posts").insert({ topic: "ts" });
+
+      const mv = c.matview("conf_counts");
+      await mv.register("SELECT count(*) AS n FROM pwrap_documents");
+      await mv.refresh();
+
+      const info = await mv.info();
+      assert(info.last_refresh_at !== null, "last_refresh_at is null after refresh");
+      assert(info.last_error === null, `last_error = ${info.last_error}, want null`);
+    }),
+
+  // Each connect() mints its own Postgres credential, so the second client is a
+  // different role. REFRESH checks ownership, which is why the creating client
+  // must not end up owning the view — otherwise a matview stops being
+  // refreshable the moment its creator's credential rotates.
+  matview_refresh_across_credentials: async () => {
+    const { projectId, apiKey } = await provision("conf-matview-cred");
+    try {
+      const first = await PwrapClient.connect({ controlUrl: CONTROL_URL, apiKey });
+      await first.matview("conf_shared").register("SELECT count(*) AS n FROM pwrap_documents");
+      await first.matview("conf_shared").refresh();
+      await first.close();
+
+      const second = await PwrapClient.connect({ controlUrl: CONTROL_URL, apiKey });
+      try {
+        // Throws "must be owner of materialized view" if the first client's
+        // credential owns it.
+        await second.matview("conf_shared").refresh();
+        const info = await second.matview("conf_shared").info();
+        assert(info.last_error === null, `last_error = ${info.last_error}, want null`);
+      } finally {
+        await second.close();
+      }
     } finally {
       await admin("DELETE", `/v1/projects/${projectId}`).catch(() => {});
     }

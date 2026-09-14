@@ -56,10 +56,7 @@
     {
       "id": "rls_with_user",
       "description": "with_user scopes reads and writes to one user under a FORCE RLS policy",
-      "sdks": ["go", "py"],
-      "missing_from": {
-        "ts": "TypeScript SDK has no withUser; tracked in CHANGELOG known limitations"
-      }
+      "sdks": ["go", "ts", "py"]
     },
     {
       "id": "realtime_subscribe",
@@ -69,11 +66,12 @@
     {
       "id": "matview_register_refresh",
       "description": "register a matview, refresh it, and read last_refresh_at back",
-      "sdks": ["go"],
-      "missing_from": {
-        "ts": "TypeScript SDK has no matview helper",
-        "py": "Python SDK has no matview helper"
-      }
+      "sdks": ["go", "ts", "py"]
+    },
+    {
+      "id": "matview_refresh_across_credentials",
+      "description": "a matview registered by one client is refreshable by a second client holding different credentials",
+      "sdks": ["go", "ts", "py"]
     }
   ]
 }

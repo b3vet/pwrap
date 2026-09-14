@@ -176,3 +176,19 @@ func (s *Service) Verify(ctx context.Context, plaintext string) (Token, []Scope,
 	}
 	return t, scopes, nil
 }
+
+// PruneAudit deletes audit rows older than the retention window and returns how
+// many went. A zero or negative window means "keep everything", which an
+// operator has to ask for explicitly — the default bounds the table.
+func (s *Service) PruneAudit(ctx context.Context, retention time.Duration) (int64, error) {
+	if retention <= 0 {
+		return 0, nil
+	}
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM admin_audit_log WHERE created_at < now() - $1::interval`,
+		retention.String())
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

@@ -235,3 +235,109 @@ func connectionDSN(ctx context.Context, t *testing.T, apiKey string) string {
 	}
 	return out.DSN
 }
+
+// createAs opens a real login session as the given credentials and runs stmt, so
+// whatever it creates is genuinely owned by that role. Going through the admin
+// pool would make the admin the owner and prove nothing.
+func createAs(ctx context.Context, t *testing.T, user, password, stmt string) {
+	t.Helper()
+	conn, err := pgx.Connect(ctx, dsnAs(t, user, password))
+	if err != nil {
+		t.Fatalf("connect as %s: %v", user, err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, stmt); err != nil {
+		t.Fatalf("exec as %s: %v", user, err)
+	}
+}
+
+func objectOwner(ctx context.Context, t *testing.T, schema, name string) string {
+	t.Helper()
+	var owner string
+	err := sharedStack.Pool().QueryRow(ctx, `
+		SELECT pg_get_userbyid(c.relowner)
+		  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND c.relname = $2
+	`, schema, name).Scan(&owner)
+	if err != nil {
+		t.Fatalf("owner of %s.%s: %v", schema, name, err)
+	}
+	return owner
+}
+
+// A client creates objects while connected as its ephemeral role, which makes
+// that role the owner — and Postgres refuses to drop a role that owns anything.
+// The sweeper has to hand ownership to the tenant role, which outlives every
+// credential minted for it, rather than fail on that role forever.
+func TestEphemeral_SweepReassignsObjectsItOwns(t *testing.T) {
+	ctx := context.Background()
+	pid, _ := provision(ctx, t, "eph-owns")
+	role, schema := tenantRoleAndSchema(ctx, t, pid)
+
+	stale, password, _, err := tenancy.Mint(ctx, sharedStack.Pool(), pid, role, schema, -time.Hour)
+	if err != nil {
+		t.Fatalf("mint stale: %v", err)
+	}
+	// VALID UNTIL is already past, so make the role usable just long enough to
+	// create something as itself. The expiry is not what this test is about.
+	if _, err := sharedStack.Pool().Exec(ctx,
+		fmt.Sprintf(`ALTER ROLE %q VALID UNTIL 'infinity'`, stale)); err != nil {
+		t.Fatalf("extend stale role: %v", err)
+	}
+	createAs(ctx, t, stale, password,
+		`CREATE MATERIALIZED VIEW owned_by_client AS SELECT 1 AS n`)
+	if got := objectOwner(ctx, t, schema, "owned_by_client"); got != stale {
+		t.Fatalf("matview owner is %q, want the ephemeral role %q — test proves nothing", got, stale)
+	}
+	if _, err := sharedStack.Pool().Exec(ctx,
+		fmt.Sprintf(`ALTER ROLE %q VALID UNTIL '2000-01-01'`, stale)); err != nil {
+		t.Fatalf("re-expire stale role: %v", err)
+	}
+
+	if _, err := tenancy.Sweep(ctx, sharedStack.Pool()); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if roleExists(ctx, t, stale) {
+		t.Errorf("role %q owning a matview survived the sweep", stale)
+	}
+	// The object must survive — it is the tenant's data, not the credential's.
+	if got := objectOwner(ctx, t, schema, "owned_by_client"); got != role {
+		t.Errorf("matview owner is %q after the sweep, want the tenant role %q", got, role)
+	}
+}
+
+// Same hazard on the delete path: a project whose client created a matview must
+// still delete cleanly.
+func TestEphemeral_ProjectDeleteWithClientOwnedObjects(t *testing.T) {
+	ctx := context.Background()
+	a := newAdmin()
+	var p struct {
+		ID uuid.UUID `json:"id"`
+	}
+	if err := a.do(ctx, "POST", "/v1/projects", map[string]string{"name": "eph-delete-owned"}, &p); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if err := a.do(ctx, "POST", fmt.Sprintf("/v1/projects/%s/migrations", p.ID), nil, nil); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	role, schema := tenantRoleAndSchema(ctx, t, p.ID)
+	minted, password, _, err := tenancy.Mint(ctx, sharedStack.Pool(), p.ID, role, schema, time.Hour)
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	createAs(ctx, t, minted, password,
+		`CREATE MATERIALIZED VIEW owned_by_client AS SELECT 1 AS n`)
+	if got := objectOwner(ctx, t, schema, "owned_by_client"); got != minted {
+		t.Fatalf("matview owner is %q, want the ephemeral role %q — test proves nothing", got, minted)
+	}
+
+	if err := a.do(ctx, "DELETE", "/v1/projects/"+p.ID.String(), nil, nil); err != nil {
+		t.Fatalf("delete project holding a client-owned matview: %v", err)
+	}
+	if roleExists(ctx, t, minted) {
+		t.Errorf("minted role %q outlived its project", minted)
+	}
+	if roleExists(ctx, t, role) {
+		t.Errorf("tenant role %q outlived its project", role)
+	}
+}

@@ -58,6 +58,7 @@ func run() int {
 		{"rls_with_user", scenarioRLSWithUser},
 		{"realtime_subscribe", scenarioRealtimeSubscribe},
 		{"matview_register_refresh", scenarioMatviewRegisterRefresh},
+		{"matview_refresh_across_credentials", scenarioMatviewRefreshAcrossCredentials},
 	}
 
 	results := map[string]string{}
@@ -466,6 +467,58 @@ func scenarioMatviewRegisterRefresh(ctx context.Context) error {
 	}
 	if info.LastRefreshAt == nil {
 		return errors.New("last_refresh_at is nil after refresh")
+	}
+	return nil
+}
+
+// Each New() mints its own Postgres credential, so the second client is a
+// different role. REFRESH checks ownership, which is why the creating client
+// must not end up owning the view — otherwise a matview stops being refreshable
+// the moment its creator's credential rotates.
+func scenarioMatviewRefreshAcrossCredentials(ctx context.Context) error {
+	pid, err := createProject(ctx, "conf-matview-cred")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = deleteProject(context.Background(), pid) }()
+	if err := applyMigrations(ctx, pid); err != nil {
+		return err
+	}
+	key, err := issueKey(ctx, pid)
+	if err != nil {
+		return err
+	}
+
+	first, err := pwrap.New(ctx, pwrap.Config{ControlURL: controlURL, APIKey: key})
+	if err != nil {
+		return fmt.Errorf("connect first: %w", err)
+	}
+	if err := first.Matview("conf_shared").Register(ctx, `SELECT count(*) AS n FROM pwrap_documents`); err != nil {
+		first.Close()
+		return fmt.Errorf("register: %w", err)
+	}
+	if err := first.Matview("conf_shared").Refresh(ctx); err != nil {
+		first.Close()
+		return fmt.Errorf("first refresh: %w", err)
+	}
+	first.Close()
+
+	second, err := pwrap.New(ctx, pwrap.Config{ControlURL: controlURL, APIKey: key})
+	if err != nil {
+		return fmt.Errorf("connect second: %w", err)
+	}
+	defer second.Close()
+	// Fails with "must be owner of materialized view" if the first client's
+	// credential owns it.
+	if err := second.Matview("conf_shared").Refresh(ctx); err != nil {
+		return fmt.Errorf("refresh from a second credential: %w", err)
+	}
+	info, err := second.Matview("conf_shared").Info(ctx)
+	if err != nil {
+		return fmt.Errorf("info: %w", err)
+	}
+	if info.LastError != "" {
+		return fmt.Errorf("last_error = %q, want empty", info.LastError)
 	}
 	return nil
 }

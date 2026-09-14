@@ -46,6 +46,14 @@ type Config struct {
 	// also how long a leaked DSN keeps working.
 	DSNTTLSeconds int
 
+	// AuditRetentionDays bounds how long admin_audit_log rows are kept. The log
+	// records every mutating management call, so on a busy deployment it grows
+	// without limit — pwrapd prunes anything older than this. 90 days by
+	// default, which is long enough to investigate an incident nobody noticed
+	// for a month. Set to 0 to keep rows forever, which is a deliberate choice
+	// rather than a default.
+	AuditRetentionDays int
+
 	// EncryptionKey is a base64-encoded 32-byte AES-256 key. When set, pwrapd
 	// encrypts the project pg_password at rest using envelope AES-GCM and
 	// re-encrypts any legacy plaintext rows at startup. When unset, pwrapd logs
@@ -81,13 +89,14 @@ func Load() (Config, error) {
 		RestExternalURL:       getenv("PWRAP_REST_URL", "http://localhost:3000"),
 		RestTokenTTLSeconds:   intEnv("PWRAP_REST_TOKEN_TTL_SECONDS", 3600),
 
-		DSNTTLSeconds:   intEnv("PWRAP_DSN_TTL_SECONDS", 3600),
-		EncryptionKey:   os.Getenv("PWRAP_ENCRYPTION_KEY"),
-		OTLPEndpoint:    os.Getenv("PWRAP_OTLP_ENDPOINT"),
-		OTLPInsecure:    boolEnv("PWRAP_OTLP_INSECURE", true),
-		OTelServiceName: getenv("PWRAP_OTEL_SERVICE_NAME", "pwrapd"),
-		MetricsAddr:     os.Getenv("PWRAP_METRICS_ADDR"),
-		TraceSampleRate: floatEnv("PWRAP_TRACE_SAMPLE_RATE", 1.0),
+		DSNTTLSeconds:      intEnv("PWRAP_DSN_TTL_SECONDS", 3600),
+		AuditRetentionDays: intEnv("PWRAP_AUDIT_RETENTION_DAYS", 90),
+		EncryptionKey:      os.Getenv("PWRAP_ENCRYPTION_KEY"),
+		OTLPEndpoint:       os.Getenv("PWRAP_OTLP_ENDPOINT"),
+		OTLPInsecure:       boolEnv("PWRAP_OTLP_INSECURE", true),
+		OTelServiceName:    getenv("PWRAP_OTEL_SERVICE_NAME", "pwrapd"),
+		MetricsAddr:        os.Getenv("PWRAP_METRICS_ADDR"),
+		TraceSampleRate:    floatEnv("PWRAP_TRACE_SAMPLE_RATE", 1.0),
 	}
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
 		return cfg, errors.New("PWRAP_DATABASE_URL is required")

@@ -3,6 +3,7 @@ import { Table } from "./table.js";
 import { Vector } from "./vector.js";
 import { Queue } from "./queue.js";
 import { Geo } from "./geo.js";
+import { Matview } from "./matview.js";
 import { issueRestToken, type RestToken, type RestTokenOpts } from "./rest.js";
 import { Subscription, type SubscribeOpts } from "./subscribe.js";
 import { SchemaVersion } from "./constants.js";
@@ -38,14 +39,59 @@ interface ConnectionResp {
 export type Sql = postgres.Sql<{}>;
 
 /**
- * Mutable holder for the live connection.
+ * How handles reach the database.
  *
  * Credentials are minted per exchange and expire server-side, so the client
- * replaces its connection before that happens. Handles read through this holder
+ * replaces its connection before that happens. Handles read through this ref
  * rather than capturing an Sql, so one kept across a refresh keeps working.
  */
 export interface SqlRef {
-  current: Sql;
+  /** The live connection. Replaced on refresh — read it, don't cache it. */
+  readonly current: Sql;
+  /**
+   * Run one operation. Normally that is just `fn(current)`. On a ref bound to a
+   * user (see {@link PwrapClient.withUser}) it instead runs inside a transaction
+   * with `request.jwt.claims` set, so an RLS policy reading that claim behaves
+   * the same whether the query arrived through the SDK or through PostgREST.
+   */
+  run<R>(fn: (sql: Sql) => Promise<R>): Promise<R>;
+}
+
+/** The single mutable cell a client and all its derived clients share. */
+class ConnHolder {
+  constructor(public current: Sql) {}
+}
+
+/**
+ * A view onto the shared connection, optionally bound to a user id.
+ *
+ * Kept separate from the holder so `withUser` can hand out a differently-scoped
+ * view of the *same* connection — a derived client must follow the parent's
+ * credential refreshes, not pin the connection it was created with.
+ */
+class ScopedRef implements SqlRef {
+  constructor(
+    private readonly holder: ConnHolder,
+    private readonly userId?: string,
+  ) {}
+
+  get current(): Sql {
+    return this.holder.current;
+  }
+
+  async run<R>(fn: (sql: Sql) => Promise<R>): Promise<R> {
+    const sql = this.holder.current;
+    if (this.userId === undefined) return fn(sql);
+    const claims = JSON.stringify({ user_id: this.userId });
+    // The result is wrapped in an object on purpose: postgres.js resolves an
+    // array returned from begin() through Promise.all, which would replace a
+    // RowList with a plain array and drop the `count` that update/delete read.
+    const out = await sql.begin(async (tx) => {
+      await tx`SELECT set_config('request.jwt.claims', ${claims}, true)`;
+      return { value: await fn(tx as unknown as Sql) };
+    });
+    return (out as unknown as { value: R }).value;
+  }
 }
 
 /** Re-exchange this long before expiry — enough to cover the call and reconnect. */
@@ -58,13 +104,26 @@ const OLD_SQL_GRACE_MS = 5 * 1000;
 export class PwrapClient {
   readonly schema: string;
   expiresAt: Date;
+  private readonly holder: ConnHolder;
   private readonly ref: SqlRef;
+  private readonly _userId?: string;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private closed = false;
 
-  /** The live connection. Replaced on refresh — read it, don't cache it. */
+  /**
+   * The live connection. Replaced on refresh — read it, don't cache it.
+   *
+   * This is the raw escape hatch: it is *not* scoped by `withUser`, because a
+   * bare connection has nowhere to put the claim. Go through the handles
+   * (`table`, `vector`, `geo`, `queue`) for user-scoped work.
+   */
   get sql(): Sql {
-    return this.ref.current;
+    return this.holder.current;
+  }
+
+  /** The user id bound by {@link withUser}, or undefined on a root client. */
+  get userId(): string | undefined {
+    return this._userId;
   }
 
   // Underscore-prefixed to signal "used by rest.ts but not part of the public API."
@@ -76,15 +135,18 @@ export class PwrapClient {
   private readonly _driver: (dsn: string) => Sql | Promise<Sql>;
 
   private constructor(
-    sql: Sql,
+    holder: ConnHolder,
     schema: string,
     expiresAt: Date,
     controlUrl: string,
     apiKey: string,
     f: typeof fetch,
     driver: (dsn: string) => Sql | Promise<Sql>,
+    userId?: string,
   ) {
-    this.ref = { current: sql };
+    this.holder = holder;
+    this.ref = new ScopedRef(holder, userId);
+    this._userId = userId;
     this.schema = schema;
     this.expiresAt = expiresAt;
     this._controlUrl = controlUrl;
@@ -122,7 +184,7 @@ export class PwrapClient {
     const driver = cfg.driver ?? ((dsn: string) => postgres(dsn, { prepare: false }));
     const sql = await driver(body.dsn);
     const client = new PwrapClient(
-      sql, body.schema, new Date(body.expires_at), controlUrl, cfg.apiKey, f, driver,
+      new ConnHolder(sql), body.schema, new Date(body.expires_at), controlUrl, cfg.apiKey, f, driver,
     );
     client.scheduleRefresh();
     return client;
@@ -139,9 +201,40 @@ export class PwrapClient {
    * so the caller doesn't race the first event.
    */
   async subscribe(opts: SubscribeOpts = {}): Promise<Subscription> {
-    const sub = new Subscription(this, opts);
+    // An explicit userId wins; otherwise a user-scoped client subscribes as that
+    // user, so `c.withUser("alice").subscribe()` does the obvious thing.
+    const sub = new Subscription(this, { ...opts, userId: opts.userId ?? this._userId });
     await sub.ready();
     return sub;
+  }
+
+  /**
+   * Derive a client whose operations run as one user.
+   *
+   * Every query issued through the returned client's handles executes inside a
+   * transaction with `request.jwt.claims` set to `{"user_id": userId}`, which is
+   * the same claim PostgREST sets from a JWT — so one RLS policy covers both
+   * paths. Without it, queries run unscoped and a FORCE RLS policy keyed on that
+   * claim matches nothing.
+   *
+   *   const alice = c.withUser("alice");
+   *   await alice.table("notes").insert({ user_id: "alice", body: "..." });
+   *   await alice.table("notes").find();   // only alice's rows
+   *
+   * The derived client shares the parent's connection and its credential
+   * refreshes. Don't close it — close the parent.
+   */
+  withUser(userId: string): PwrapClient {
+    return new PwrapClient(
+      this.holder,
+      this.schema,
+      this.expiresAt,
+      this._controlUrl,
+      this._apiKey,
+      this._fetch,
+      this._driver,
+      userId,
+    );
   }
 
   /**
@@ -166,13 +259,26 @@ export class PwrapClient {
     return new Geo(this.ref, collection);
   }
 
+  /** Handle over a named materialized view in the pwrap_matviews registry. */
+  matview(name: string): Matview {
+    return new Matview(this.ref, name);
+  }
+
+  /**
+   * Close the connection and stop refreshing it.
+   *
+   * A no-op on a client returned by {@link withUser} — those share the parent's
+   * connection, and closing one would pull the connection out from under every
+   * other scope. Close the client you called `connect` on.
+   */
   async close(): Promise<void> {
+    if (this._userId !== undefined) return;
     this.closed = true;
     if (this.refreshTimer !== undefined) {
       clearTimeout(this.refreshTimer);
       this.refreshTimer = undefined;
     }
-    await this.ref.current.end({ timeout: 5 });
+    await this.holder.current.end({ timeout: 5 });
   }
 
   // --- credential refresh -----------------------------------------------
@@ -207,10 +313,10 @@ export class PwrapClient {
 
       const driver = this._driver;
       const next = await driver(body.dsn);
-      const old = this.ref.current;
+      const old = this.holder.current;
       // Swap first: handles read through the holder, so new work picks up the
-      // new credentials immediately.
-      this.ref.current = next;
+      // new credentials immediately — derived clients from withUser included.
+      this.holder.current = next;
       this.expiresAt = new Date(body.expires_at);
 
       setTimeout(() => {

@@ -41,12 +41,34 @@ until curl -sf "$PWRAP_CONTROL_URL/v1/readyz" >/dev/null 2>&1; do sleep 1; done
 PWRAP_ADMIN_TOKEN="$(bash scripts/mint-admin-token.sh)"
 export PWRAP_ADMIN_TOKEN
 
+# Pulls one field out of a control-plane response, and says what actually came
+# back when the field is missing. Without this a 409 or a 401 surfaces as a bare
+# `KeyError: id`, which names neither the request nor the reason.
+api_field() {
+  python3 -c '
+import json, sys
+field, what = sys.argv[1], sys.argv[2]
+body = sys.stdin.read()
+try:
+    value = json.loads(body)[field]
+except Exception:
+    sys.exit("refresh-check: " + what + " failed: " + (body.strip() or "(empty response)"))
+print(value)
+' "$1" "$2"
+}
+
+# A unique name per run: project names are unique and are not deleted on the way
+# out, so a fixed name made the second run 409 against the first.
+PROJECT_NAME="refresh-check-$(date +%s)-$$"
 PID=$(curl -s -X POST -H "Authorization: Bearer $PWRAP_ADMIN_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"refresh-check"}' "$PWRAP_CONTROL_URL/v1/projects" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+  -d "{\"name\":\"$PROJECT_NAME\"}" "$PWRAP_CONTROL_URL/v1/projects" | api_field id "create project")
+# Tear the project down on the way out, so repeated runs do not pile up schemas.
+# Ordering matters: the delete needs pwrapd, which cleanup then stops.
+trap 'curl -s -X DELETE -H "Authorization: Bearer $PWRAP_ADMIN_TOKEN" "$PWRAP_CONTROL_URL/v1/projects/$PID" >/dev/null 2>&1 || true; cleanup' EXIT
 curl -sf -X POST -H "Authorization: Bearer $PWRAP_ADMIN_TOKEN" "$PWRAP_CONTROL_URL/v1/projects/$PID/migrations" >/dev/null
 curl -s -X POST -H "Authorization: Bearer $PWRAP_ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"refresh"}' "$PWRAP_CONTROL_URL/v1/projects/$PID/keys" \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin)["key"])' > /tmp/refresh-key.txt
+  | api_field key "issue key" > /tmp/refresh-key.txt
 
 export PWRAP_REFRESH_WAIT="$WAIT"
 status=0

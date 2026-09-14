@@ -96,20 +96,26 @@ func Mint(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID, tenantRo
 // DROP ROLE is issued outside a transaction per role: one failure (a role that
 // still owns an object, say) must not roll back the rest of the sweep.
 func Sweep(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	// The tenant role comes along because anything the expired credential
+	// created has to be handed to it before the role can go. See retireRole.
 	rows, err := pool.Query(ctx, `
-		SELECT role_name FROM ephemeral_roles WHERE expires_at < now() - $1::interval
+		SELECT e.role_name, p.pg_role
+		  FROM ephemeral_roles e
+		  JOIN projects p ON p.id = e.project_id
+		 WHERE e.expires_at < now() - $1::interval
 	`, sweepGrace.String())
 	if err != nil {
 		return 0, err
 	}
-	var names []string
+	type expired struct{ role, tenantRole string }
+	var names []expired
 	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
+		var e expired
+		if err := rows.Scan(&e.role, &e.tenantRole); err != nil {
 			rows.Close()
 			return 0, err
 		}
-		names = append(names, n)
+		names = append(names, e)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -118,16 +124,16 @@ func Sweep(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 
 	dropped := 0
 	var failures []string
-	for _, n := range names {
-		if _, err := pool.Exec(ctx, fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(n))); err != nil {
+	for _, e := range names {
+		if err := retireRole(ctx, pool, e.role, e.tenantRole); err != nil {
 			// Leave the row so the next sweep retries it, but say so — a role
 			// that can never be dropped would otherwise be retried forever in
 			// silence.
-			failures = append(failures, fmt.Sprintf("%s: %v", n, err))
+			failures = append(failures, fmt.Sprintf("%s: %v", e.role, err))
 			continue
 		}
-		if _, err := pool.Exec(ctx, `DELETE FROM ephemeral_roles WHERE role_name = $1`, n); err != nil {
-			failures = append(failures, fmt.Sprintf("%s (row): %v", n, err))
+		if _, err := pool.Exec(ctx, `DELETE FROM ephemeral_roles WHERE role_name = $1`, e.role); err != nil {
+			failures = append(failures, fmt.Sprintf("%s (row): %v", e.role, err))
 			continue
 		}
 		dropped++
@@ -143,30 +149,79 @@ func Sweep(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 // before the tenant role itself goes away, since the ephemeral roles are its
 // members and would otherwise be left pointing at nothing.
 func DropForProject(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) error {
-	rows, err := pool.Query(ctx, `SELECT role_name FROM ephemeral_roles WHERE project_id = $1`, projectID)
+	rows, err := pool.Query(ctx, `
+		SELECT e.role_name, p.pg_role
+		  FROM ephemeral_roles e
+		  JOIN projects p ON p.id = e.project_id
+		 WHERE e.project_id = $1
+	`, projectID)
 	if err != nil {
 		return err
 	}
-	var names []string
+	type owned struct{ role, tenantRole string }
+	var names []owned
 	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
+		var o owned
+		if err := rows.Scan(&o.role, &o.tenantRole); err != nil {
 			rows.Close()
 			return err
 		}
-		names = append(names, n)
+		names = append(names, o)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, n := range names {
-		if _, err := pool.Exec(ctx, fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(n))); err != nil {
-			return fmt.Errorf("drop ephemeral role %s: %w", n, err)
+	for _, o := range names {
+		if err := retireRole(ctx, pool, o.role, o.tenantRole); err != nil {
+			return fmt.Errorf("drop ephemeral role %s: %w", o.role, err)
 		}
 	}
 	_, err = pool.Exec(ctx, `DELETE FROM ephemeral_roles WHERE project_id = $1`, projectID)
 	return err
+}
+
+// retireRole hands everything an ephemeral role owns to the project's tenant
+// role, then drops it.
+//
+// Clients connect *as* the ephemeral role, so anything they create — a
+// materialized view through the SDK, a table through the SQL escape hatch — is
+// owned by a credential built to vanish within the hour, and Postgres refuses to
+// drop a role that still owns objects. Without this the sweeper fails on that
+// role forever and the object outlives its owner. Ownership belongs to the
+// tenant role, which outlives every credential minted for it.
+//
+// The GRANT is needed because REASSIGN OWNED and DROP OWNED check
+// has_privs_of_role, which follows INHERIT and not SET: a non-superuser
+// CREATEROLE admin holds ADMIN OPTION on roles it created but not their
+// privileges. It is a harmless no-op for a superuser, and re-granting an
+// existing membership is idempotent, so this also repairs roles minted before
+// this function existed.
+func retireRole(ctx context.Context, pool *pgxpool.Pool, role, tenantRole string) error {
+	// A previous sweep may have dropped the role and failed to delete its row.
+	// Nothing below tolerates a missing role, and there is nothing left to do.
+	var exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, role).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	for _, q := range []string{
+		fmt.Sprintf(`GRANT %s TO CURRENT_USER`, quoteIdent(role)),
+		fmt.Sprintf(`GRANT %s TO CURRENT_USER`, quoteIdent(tenantRole)),
+		fmt.Sprintf(`REASSIGN OWNED BY %s TO %s`, quoteIdent(role), quoteIdent(tenantRole)),
+		// Clears the privilege grants REASSIGN leaves behind; those block DROP
+		// ROLE just as ownership does.
+		fmt.Sprintf(`DROP OWNED BY %s`, quoteIdent(role)),
+		fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(role)),
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			return fmt.Errorf("%s: %w", q, err)
+		}
+	}
+	return nil
 }
 
 // ephemeralRoleName derives a unique login name from the tenant role, trimming

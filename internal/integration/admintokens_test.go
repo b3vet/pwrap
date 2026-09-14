@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -222,3 +223,57 @@ func auditCount(ctx context.Context, t *testing.T) int {
 }
 
 func newUUID() string { return uuid.New().String() }
+
+// The audit log has to be bounded, or it becomes the thing that fills the disk.
+func TestAdminTokens_AuditPruneRespectsRetention(t *testing.T) {
+	ctx := context.Background()
+
+	// Two rows either side of the window, inserted directly so the test does
+	// not depend on wall-clock waiting.
+	if _, err := sharedStack.Pool().Exec(ctx, `
+		INSERT INTO admin_audit_log (token_prefix, action, method, path, status, created_at)
+		VALUES ('oldpref', 'POST /v1/projects', 'POST', '/v1/projects', 201, now() - interval '100 days'),
+		       ('newpref', 'POST /v1/projects', 'POST', '/v1/projects', 201, now() - interval '1 day')
+	`); err != nil {
+		t.Fatalf("seed audit rows: %v", err)
+	}
+
+	svc := admintokens.NewService(sharedStack.Pool())
+	if _, err := svc.PruneAudit(ctx, 90*24*time.Hour); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	if n := auditRowsWithPrefix(ctx, t, "oldpref"); n != 0 {
+		t.Errorf("row older than the retention window survived (%d rows)", n)
+	}
+	if n := auditRowsWithPrefix(ctx, t, "newpref"); n != 1 {
+		t.Errorf("row inside the window was deleted (%d rows, want 1)", n)
+	}
+
+	// Zero retention means keep everything — an operator has to opt into that,
+	// and it must not be mistaken for "delete everything".
+	if _, err := sharedStack.Pool().Exec(ctx, `
+		INSERT INTO admin_audit_log (token_prefix, action, method, path, status, created_at)
+		VALUES ('ancient', 'POST /v1/projects', 'POST', '/v1/projects', 201, now() - interval '5 years')
+	`); err != nil {
+		t.Fatalf("seed ancient row: %v", err)
+	}
+	if n, err := svc.PruneAudit(ctx, 0); err != nil {
+		t.Fatalf("prune with zero retention: %v", err)
+	} else if n != 0 {
+		t.Errorf("zero retention deleted %d rows, want 0", n)
+	}
+	if n := auditRowsWithPrefix(ctx, t, "ancient"); n != 1 {
+		t.Errorf("zero retention removed a row it should have kept (%d rows, want 1)", n)
+	}
+}
+
+func auditRowsWithPrefix(ctx context.Context, t *testing.T, prefix string) int {
+	t.Helper()
+	var n int
+	if err := sharedStack.Pool().QueryRow(ctx,
+		`SELECT count(*) FROM admin_audit_log WHERE token_prefix = $1`, prefix).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	return n
+}

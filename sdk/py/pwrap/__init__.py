@@ -6,6 +6,7 @@ from .table import Document, Table
 from .vector import Match, Vector, VECTOR_DIM
 from .queue import Queue, Stats
 from .geo import Feature, Geo
+from .matview import Matview, MatviewInfo
 from .rest import RestToken
 from .subscribe import ChangeEvent, Subscription, SubscriptionClosed
 
@@ -23,6 +24,8 @@ __all__ = [
     "Stats",
     "Feature",
     "Geo",
+    "Matview",
+    "MatviewInfo",
     "RestToken",
     "ChangeEvent",
     "Subscription",

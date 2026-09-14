@@ -14,11 +14,11 @@ export interface Feature {
 export class Geo {
   constructor(private ref: SqlRef, private collection: string) {}
 
-  // Credentials expire, so the client swaps its connection periodically.
-  // Reading through the holder means a handle kept across that boundary
-  // keeps working instead of pointing at a closed pool.
-  private get sql(): Sql {
-    return this.ref.current;
+  // Everything goes through the ref rather than a captured Sql: the client
+  // swaps its connection when credentials near expiry, and a user-scoped ref
+  // additionally wraps each operation in a claims-carrying transaction.
+  private run<R>(fn: (sql: Sql) => Promise<R>): Promise<R> {
+    return this.ref.run(fn);
   }
 
   /**
@@ -29,47 +29,50 @@ export class Geo {
   async insertPointMany(points: { lng: number; lat: number; metadata?: Record<string, unknown> }[]): Promise<string[]> {
     if (points.length === 0) return [];
     const payload = points.map((p) => ({ lng: p.lng, lat: p.lat, metadata: p.metadata ?? {} }));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json = this.sql.json(payload as any);
-    const rows = await this.sql<{ id: string }[]>`
+    const rows = await this.run((sql) => sql<{ id: string }[]>`
       INSERT INTO pwrap_geo (collection, geom, metadata)
       SELECT ${this.collection},
              ST_SetSRID(ST_MakePoint((rec->>'lng')::float8, (rec->>'lat')::float8), 4326),
              rec->'metadata'
-        FROM jsonb_array_elements(${json}::jsonb) WITH ORDINALITY AS u(rec, ord)
+        FROM jsonb_array_elements(${
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          sql.json(payload as any)
+        }::jsonb) WITH ORDINALITY AS u(rec, ord)
        ORDER BY ord
       RETURNING id
-    `;
+    `);
     return rows.map((r) => r.id);
   }
 
   /** Insert a single (lng, lat) point. */
   async insertPoint(lng: number, lat: number, metadata: Record<string, unknown> = {}): Promise<string> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const meta = this.sql.json(metadata as any);
-    const rows = await this.sql<{ id: string }[]>`
+    const rows = await this.run((sql) => sql<{ id: string }[]>`
       INSERT INTO pwrap_geo (collection, geom, metadata)
-      VALUES (${this.collection}, ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), ${meta})
+      VALUES (${this.collection}, ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326), ${
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sql.json(metadata as any)
+      })
       RETURNING id
-    `;
+    `);
     return rows[0].id;
   }
 
   /** Insert any GeoJSON geometry (Point, LineString, Polygon, Multi*, GeometryCollection). */
   async insert(geoJSON: Record<string, unknown>, metadata: Record<string, unknown> = {}): Promise<string> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const meta = this.sql.json(metadata as any);
     const geomText = JSON.stringify(geoJSON);
-    const rows = await this.sql<{ id: string }[]>`
+    const rows = await this.run((sql) => sql<{ id: string }[]>`
       INSERT INTO pwrap_geo (collection, geom, metadata)
-      VALUES (${this.collection}, ST_SetSRID(ST_GeomFromGeoJSON(${geomText}), 4326), ${meta})
+      VALUES (${this.collection}, ST_SetSRID(ST_GeomFromGeoJSON(${geomText}), 4326), ${
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sql.json(metadata as any)
+      })
       RETURNING id
-    `;
+    `);
     return rows[0].id;
   }
 
   async get(id: string): Promise<Feature | null> {
-    const rows = await this.sql<Feature[]>`
+    const rows = await this.run((sql) => sql<Feature[]>`
       SELECT id,
              ST_AsGeoJSON(geom)::jsonb AS geometry,
              metadata,
@@ -77,20 +80,22 @@ export class Geo {
              updated_at
       FROM pwrap_geo
       WHERE collection = ${this.collection} AND id = ${id}
-    `;
+    `);
     return rows[0] ?? null;
   }
 
   async delete(id: string): Promise<boolean> {
-    const res = await this.sql`
-      DELETE FROM pwrap_geo WHERE collection = ${this.collection} AND id = ${id}
-    `;
-    return res.count > 0;
+    return this.run(async (sql) => {
+      const res = await sql`
+        DELETE FROM pwrap_geo WHERE collection = ${this.collection} AND id = ${id}
+      `;
+      return res.count > 0;
+    });
   }
 
   /** Features within `meters` of (lng, lat), sorted by distance. */
   async withinRadius(lng: number, lat: number, meters: number, limit = 100): Promise<Feature[]> {
-    const rows = await this.sql<Feature[]>`
+    const rows = await this.run((sql) => sql<Feature[]>`
       SELECT id,
              ST_AsGeoJSON(geom)::jsonb              AS geometry,
              metadata,
@@ -109,13 +114,13 @@ export class Geo {
         )
       ORDER BY distance_meters
       LIMIT ${limit}
-    `;
+    `);
     return rows.map((r) => ({ ...r, distance_meters: Number(r.distance_meters) }));
   }
 
   /** Features whose bounding box intersects the envelope. Fast (GIST), no distance. */
   async withinBBox(minLng: number, minLat: number, maxLng: number, maxLat: number, limit = 100): Promise<Feature[]> {
-    return this.sql<Feature[]>`
+    return this.run((sql) => sql<Feature[]>`
       SELECT id,
              ST_AsGeoJSON(geom)::jsonb AS geometry,
              metadata,
@@ -125,12 +130,12 @@ export class Geo {
       WHERE collection = ${this.collection}
         AND geom && ST_MakeEnvelope(${minLng}, ${minLat}, ${maxLng}, ${maxLat}, 4326)
       LIMIT ${limit}
-    `;
+    `);
   }
 
   /** K nearest features to (lng, lat), ordered by KNN distance, with meter distance attached. */
   async nearest(lng: number, lat: number, k = 10): Promise<Feature[]> {
-    const rows = await this.sql<Feature[]>`
+    const rows = await this.run((sql) => sql<Feature[]>`
       SELECT id,
              ST_AsGeoJSON(geom)::jsonb AS geometry,
              metadata,
@@ -144,14 +149,14 @@ export class Geo {
       WHERE collection = ${this.collection}
       ORDER BY geom <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
       LIMIT ${k}
-    `;
+    `);
     return rows.map((r) => ({ ...r, distance_meters: Number(r.distance_meters) }));
   }
 
   async count(): Promise<number> {
-    const rows = await this.sql<{ count: bigint }[]>`
+    const rows = await this.run((sql) => sql<{ count: bigint }[]>`
       SELECT COUNT(*) FROM pwrap_geo WHERE collection = ${this.collection}
-    `;
+    `);
     return Number(rows[0].count);
   }
 }

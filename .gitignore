@@ -49,3 +49,5 @@ conformance/.reports/
 conformance/.venv/
 conformance/ts/node_modules/
 conformance/**/report-*.json
+# `go build` inside conformance/go drops a binary named after the directory.
+conformance/go/go

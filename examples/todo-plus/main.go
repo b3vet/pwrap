@@ -43,7 +43,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context) (err error) {
 	controlURL := envOr("PWRAP_CONTROL_URL", "http://localhost:8080")
 	adminToken := envOr("PWRAP_ADMIN_TOKEN", os.Getenv("PWRAP_BOOTSTRAP_TOKEN"))
 	if adminToken == "" {
@@ -62,10 +62,18 @@ func run(ctx context.Context) error {
 
 	if !boolEnv("TODO_PLUS_KEEP") {
 		defer func() {
-			if err := admin.deleteProject(context.Background(), project.ID); err != nil {
-				log.Printf("[control] delete project: %v (leaving behind)", err)
-			} else {
+			// A failed teardown fails the demo. This used to only log, and that
+			// is how a real bug stayed green: clients connect as a short-lived
+			// role, so a matview created below was owned by a role the delete
+			// then could not drop. Cleanup is part of what this dogfood proves.
+			derr := admin.deleteProject(context.Background(), project.ID)
+			if derr == nil {
 				log.Printf("[control] deleted project %s", project.ID)
+				return
+			}
+			log.Printf("[control] delete project: %v (leaving behind)", derr)
+			if err == nil {
+				err = fmt.Errorf("delete project: %w", derr)
 			}
 		}()
 	}

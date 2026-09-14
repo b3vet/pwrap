@@ -13,6 +13,7 @@ from .exceptions import PwrapError
 
 if TYPE_CHECKING:  # pragma: no cover
     from .geo import Geo
+    from .matview import Matview
     from .queue import Queue
     from .rest import RestToken
     from .subscribe import Subscription
@@ -297,6 +298,10 @@ class PwrapClient:
     def geo(self, collection: str) -> "Geo":
         from .geo import Geo
         return Geo(self, collection)
+
+    def matview(self, name: str) -> "Matview":
+        from .matview import Matview
+        return Matview(self, name)
 
     async def issue_rest_token(
         self,

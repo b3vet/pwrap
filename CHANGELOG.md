@@ -8,6 +8,59 @@ While the version is `0.x`, the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+
+- **`PWRAP_AUDIT_RETENTION_DAYS`** bounds the admin audit log. pwrapd prunes rows
+  older than the window (90 days by default) on the same ten-minute housekeeping
+  pass that sweeps expired DSN roles. `0` disables pruning and keeps rows
+  forever. See [SECURITY.md](SECURITY.md) for how to pick the window.
+- **`withUser` in the TypeScript SDK.** `client.withUser(id)` returns a derived
+  client whose `table` / `vector` / `geo` / `queue` operations run inside a
+  transaction with `request.jwt.claims` set, so one RLS policy covers both the
+  SDK and PostgREST. The derived client shares the parent's connection and its
+  credential refreshes; `close()` on it is a no-op. `subscribe()` inherits the
+  bound user unless a `userId` is passed explicitly.
+- **`matview` in the TypeScript and Python SDKs** — `register`, `refresh`,
+  `refreshConcurrent` / `refresh_concurrent`, `drop` and `info`, against the same
+  `pwrap_matviews` registry the Go SDK uses. All three compute the definition
+  checksum identically, so registering from one SDK does not look stale to
+  another.
+
+### Changed
+
+- The TypeScript handles now route every query through the client rather than
+  capturing a connection, which is what makes `withUser` possible. No change to
+  their public API.
+
+### Fixed
+
+- **A matview created through the SDK could not be refreshed afterwards.** The
+  role that runs `CREATE` owns the result, and since 0.2.0 clients connect as a
+  credential that expires within the hour — so `REFRESH`, which requires
+  ownership, failed with `must be owner of materialized view` for any other
+  client and for the same client after its own hourly credential rotation.
+  `register` now hands the matview to the project's tenant role, which outlives
+  every credential and which every connection inherits. Existing matviews are
+  repaired the next time they are registered, or with
+  `ALTER MATERIALIZED VIEW <name> OWNER TO <tenant role>`.
+- **Deleting a project failed if a client had created anything.** Postgres
+  refuses to drop a role that still owns objects, so a project whose client had
+  registered a matview returned `500` on delete and its expired roles could
+  never be swept. Ownership is now handed to the tenant role before an ephemeral
+  role is dropped, and the delete drops the schema first.
+- The last two cross-SDK parity gaps are closed. `conformance/scenarios.json`
+  lists no `missing_from` entries, and the parity gate now enforces all 12
+  scenarios across all three SDKs — including a new one that registers a matview
+  with one client and refreshes it with a second, which is what caught the
+  ownership bug.
+- `scripts/refresh-check.sh` is re-runnable: it used a fixed project name, so a
+  second run collided with the first and died with a bare `KeyError: id`. It now
+  uses a unique name, reports what the control plane actually returned, and
+  deletes its project on the way out.
+- The `todo-plus` demo now fails when its teardown fails. It only logged before,
+  which is how the project-delete bug above stayed green in CI.
+
+
 ## [0.2.0] - 2026-09-14
 
 **Two breaking changes.** Both are deliberate and both need action — see

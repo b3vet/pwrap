@@ -223,21 +223,31 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 		}
 	}
 	// Ephemeral login roles are members of the tenant role, so they have to go
-	// first — Postgres refuses to drop a role other roles still depend on. Their
+	// before it — Postgres refuses to drop a role others still depend on. Their
 	// rows disappear with the project via ON DELETE CASCADE, but the roles are
 	// Postgres objects and need dropping explicitly.
 	ephemeral, err := ephemeralRoleNames(ctx, tx, id)
 	if err != nil {
 		return fmt.Errorf("list ephemeral roles: %w", err)
 	}
-	drops := make([]string, 0, len(ephemeral)+2)
+	// The schema goes first, and that ordering is the point: clients connect as
+	// an ephemeral role, so a matview or table they created is owned by it, and
+	// Postgres will not drop a role that still owns objects. Dropping the schema
+	// CASCADE removes those objects, and DROP OWNED then clears whatever
+	// privileges are left. Here — unlike the sweeper — nothing is worth
+	// reassigning, because the whole project is going away.
+	drops := []string{fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, quoteIdent(p.PgSchema))}
 	for _, r := range ephemeral {
-		drops = append(drops, fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(r)))
+		// GRANT because DROP OWNED checks has_privs_of_role: a non-superuser
+		// CREATEROLE admin holds ADMIN OPTION on roles it created, not their
+		// privileges. A no-op for a superuser.
+		drops = append(drops,
+			fmt.Sprintf(`GRANT %s TO CURRENT_USER`, quoteIdent(r)),
+			fmt.Sprintf(`DROP OWNED BY %s`, quoteIdent(r)),
+			fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(r)),
+		)
 	}
-	drops = append(drops,
-		fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, quoteIdent(p.PgSchema)),
-		fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(p.PgRole)),
-	)
+	drops = append(drops, fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(p.PgRole)))
 	for _, q := range drops {
 		if _, err := tx.Exec(ctx, q); err != nil {
 			return fmt.Errorf("drop: %w", err)
@@ -375,7 +385,13 @@ func isUniqueViolation(err error) bool {
 // ephemeralRoleNames lists the short-lived roles minted for a project, so they
 // can be dropped before the tenant role they are members of.
 func ephemeralRoleNames(ctx context.Context, tx pgx.Tx, projectID uuid.UUID) ([]string, error) {
-	rows, err := tx.Query(ctx, `SELECT role_name FROM ephemeral_roles WHERE project_id = $1`, projectID)
+	// Only roles that still exist: a sweep that dropped the role but failed to
+	// delete its row would otherwise leave a name that GRANT cannot resolve.
+	rows, err := tx.Query(ctx, `
+		SELECT role_name FROM ephemeral_roles
+		 WHERE project_id = $1
+		   AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name)
+	`, projectID)
 	if err != nil {
 		return nil, err
 	}

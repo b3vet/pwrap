@@ -131,6 +131,14 @@ func run(logger *slog.Logger) error {
 			} else if n > 0 {
 				logger.Info("dropped expired ephemeral roles", "count", n)
 			}
+			// Same timer: the audit log needs bounding too, and two tickers to
+			// delete two kinds of stale row would be noise.
+			retention := time.Duration(cfg.AuditRetentionDays) * 24 * time.Hour
+			if n, err := srv.AdminTokensService().PruneAudit(sweepCtx, retention); err != nil {
+				logger.Warn("audit log prune failed", "err", err)
+			} else if n > 0 {
+				logger.Info("pruned audit log rows", "count", n, "retention_days", cfg.AuditRetentionDays)
+			}
 			select {
 			case <-sweepCtx.Done():
 				return

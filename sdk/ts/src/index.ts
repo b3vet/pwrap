@@ -5,6 +5,7 @@ export type { Match } from "./vector.js";
 export type { EnqueueRequest } from "./queue.js";
 export type { RestToken, RestTokenOpts } from "./rest.js";
 export type { Feature } from "./geo.js";
+export type { MatviewInfo } from "./matview.js";
 export { Subscription } from "./subscribe.js";
 export type { ChangeEvent, SubscribeOpts } from "./subscribe.js";
 export { VectorDim, SchemaVersion } from "./constants.js";

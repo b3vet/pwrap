@@ -240,6 +240,40 @@ async def scenario_rls_with_user() -> None:
                 assert len(rows) == want, f"{label} saw {len(rows)} rows, want {want}"
 
 
+async def scenario_matview_register_refresh() -> None:
+    async with provisioned("conf-matview") as (_, key, _a):
+        async with await PwrapClient.connect(api_key=key, control_url=CONTROL_URL) as c:
+            await c.table("posts").insert({"topic": "py"})
+
+            mv = c.matview("conf_counts")
+            await mv.register("SELECT count(*) AS n FROM pwrap_documents")
+            await mv.refresh()
+
+            info = await mv.info()
+            assert info.last_refresh_at is not None, "last_refresh_at is None after refresh"
+            assert info.last_error is None, f"last_error = {info.last_error}, want None"
+
+
+async def scenario_matview_refresh_across_credentials() -> None:
+    """Each connect() mints its own Postgres credential, so a second client is a
+    different role. REFRESH checks ownership, which is why the creating client
+    must not end up owning the view — otherwise a matview stops being
+    refreshable the moment its creator's credential rotates."""
+    async with provisioned("conf-matview-cred") as (_, key, _a):
+        async with await PwrapClient.connect(api_key=key, control_url=CONTROL_URL) as first:
+            await first.matview("conf_shared").register(
+                "SELECT count(*) AS n FROM pwrap_documents"
+            )
+            await first.matview("conf_shared").refresh()
+
+        async with await PwrapClient.connect(api_key=key, control_url=CONTROL_URL) as second:
+            # Fails with "must be owner of materialized view" if the first
+            # client's credential owns it.
+            await second.matview("conf_shared").refresh()
+            info = await second.matview("conf_shared").info()
+            assert info.last_error is None, f"last_error = {info.last_error}, want None"
+
+
 async def scenario_realtime_subscribe() -> None:
     async with provisioned("conf-realtime") as (_, key, _a):
         async with await PwrapClient.connect(api_key=key, control_url=CONTROL_URL) as c:
@@ -265,6 +299,8 @@ SCENARIOS: dict[str, Callable[[], Awaitable[None]]] = {
     "schema_version_guard": scenario_schema_version_guard,
     "rls_with_user": scenario_rls_with_user,
     "realtime_subscribe": scenario_realtime_subscribe,
+    "matview_register_refresh": scenario_matview_register_refresh,
+    "matview_refresh_across_credentials": scenario_matview_refresh_across_credentials,
 }
 
 

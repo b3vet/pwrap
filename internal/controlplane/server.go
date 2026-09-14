@@ -232,6 +232,10 @@ func buildCipher(cfg config.Config, logger *slog.Logger) (crypto.Cipher, error) 
 	return c, nil
 }
 
+// AdminTokensService exposes the admin-token service so pwrapd can run the
+// audit-log prune on its housekeeping timer.
+func (s *Server) AdminTokensService() *admintokens.Service { return s.adminTokens }
+
 // ProjectsService exposes the underlying projects service. Used by pwrapd to
 // run the one-shot ReencryptAll sweep at startup without re-deriving the cipher.
 func (s *Server) ProjectsService() *projects.Service { return s.projects }
