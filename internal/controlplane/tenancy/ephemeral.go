@@ -191,12 +191,13 @@ func DropForProject(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID
 // role forever and the object outlives its owner. Ownership belongs to the
 // tenant role, which outlives every credential minted for it.
 //
-// The GRANT is needed because REASSIGN OWNED and DROP OWNED check
-// has_privs_of_role, which follows INHERIT and not SET: a non-superuser
-// CREATEROLE admin holds ADMIN OPTION on roles it created but not their
-// privileges. It is a harmless no-op for a superuser, and re-granting an
-// existing membership is idempotent, so this also repairs roles minted before
-// this function existed.
+// REASSIGN OWNED and DROP OWNED check has_privs_of_role, which follows INHERIT
+// and not SET, and a non-superuser CREATEROLE admin holds ADMIN OPTION on the
+// roles it created but not their privileges — so the membership is granted
+// where it is missing. It is not revoked afterwards: a REVOKE removes the whole
+// membership, including a SET grant such an admin needs for its other work, and
+// silently breaking that would be worse than the extra row. For the usual
+// superuser admin the check passes and nothing is granted at all.
 func retireRole(ctx context.Context, pool *pgxpool.Pool, role, tenantRole string) error {
 	// A previous sweep may have dropped the role and failed to delete its row.
 	// Nothing below tolerates a missing role, and there is nothing left to do.
@@ -208,9 +209,14 @@ func retireRole(ctx context.Context, pool *pgxpool.Pool, role, tenantRole string
 	if !exists {
 		return nil
 	}
+
+	for _, r := range []string{role, tenantRole} {
+		if err := grantSelfIfMissing(ctx, pool, r); err != nil {
+			return err
+		}
+	}
+
 	for _, q := range []string{
-		fmt.Sprintf(`GRANT %s TO CURRENT_USER`, quoteIdent(role)),
-		fmt.Sprintf(`GRANT %s TO CURRENT_USER`, quoteIdent(tenantRole)),
 		fmt.Sprintf(`REASSIGN OWNED BY %s TO %s`, quoteIdent(role), quoteIdent(tenantRole)),
 		// Clears the privilege grants REASSIGN leaves behind; those block DROP
 		// ROLE just as ownership does.
@@ -220,6 +226,25 @@ func retireRole(ctx context.Context, pool *pgxpool.Pool, role, tenantRole string
 		if _, err := pool.Exec(ctx, q); err != nil {
 			return fmt.Errorf("%s: %w", q, err)
 		}
+	}
+	return nil
+}
+
+// grantSelfIfMissing gives pwrapd's own login the privileges of a role when it
+// does not already hold them. `USAGE` is Postgres's name for has_privs_of_role —
+// the same check REASSIGN OWNED performs — so this grants exactly when the
+// reassign would otherwise be refused, and no more.
+func grantSelfIfMissing(ctx context.Context, pool *pgxpool.Pool, role string) error {
+	var has bool
+	if err := pool.QueryRow(ctx,
+		`SELECT pg_has_role(current_user, $1, 'USAGE')`, role).Scan(&has); err != nil {
+		return fmt.Errorf("check membership in %s: %w", role, err)
+	}
+	if has {
+		return nil
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`GRANT %s TO CURRENT_USER`, quoteIdent(role))); err != nil {
+		return fmt.Errorf("grant %s: %w", role, err)
 	}
 	return nil
 }
