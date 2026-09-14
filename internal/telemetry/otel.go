@@ -32,7 +32,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 // Options configures the OTel SDK. All fields are optional.
@@ -100,7 +100,9 @@ func Init(ctx context.Context, opts Options) (*Providers, error) {
 		semconv.SchemaURL,
 		semconv.ServiceName(opts.ServiceName),
 		semconv.ServiceVersion(opts.ServiceVersion),
-		semconv.DeploymentEnvironmentName(opts.Environment),
+		// semconv 1.43 dropped the DeploymentEnvironmentName helper and keeps only
+		// the attribute key, so build the attribute from the key directly.
+		semconv.DeploymentEnvironmentNameKey.String(opts.Environment),
 	))
 	if err != nil {
 		// Even on resource-merge failure, return a non-nil Providers so Shutdown
