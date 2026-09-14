@@ -14,7 +14,7 @@ require github.com/b3vet/pwrap/sdk/go v0.0.0-00010101000000-000000000000
 
 require (
 	github.com/coder/websocket v1.8.14
-	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
