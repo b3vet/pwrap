@@ -16,12 +16,19 @@ const (
 // Generate returns a fresh API key plaintext and the lookup prefix.
 // Format: "pwk_<43 base64url chars>". Prefix = first PrefixLookup chars after "pwk_".
 func Generate() (plaintext, prefix string, err error) {
+	return GenerateWithPrefix(KeyPrefix)
+}
+
+// GenerateWithPrefix mints a credential of the same shape under a different
+// marker, so admin tokens ("pwa_") share this generator rather than growing a
+// parallel implementation of the part that has to be right.
+func GenerateWithPrefix(marker string) (plaintext, prefix string, err error) {
 	var b [keyBytes]byte
 	if _, err = rand.Read(b[:]); err != nil {
 		return "", "", fmt.Errorf("rand: %w", err)
 	}
 	payload := base64.RawURLEncoding.EncodeToString(b[:])
-	return KeyPrefix + payload, payload[:PrefixLookup], nil
+	return marker + payload, payload[:PrefixLookup], nil
 }
 
 // ParsePrefix extracts the lookup prefix from a plaintext API key, or returns an error

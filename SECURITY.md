@@ -24,15 +24,47 @@ earlier tags.
 
 Understanding these boundaries matters more than any individual bug.
 
-### The bootstrap token is a root credential
+### The bootstrap token only mints admin tokens
 
-`PWRAP_BOOTSTRAP_TOKEN` is a single shared secret guarding every management
-endpoint: creating and deleting projects, issuing and revoking API keys, running
-migrations, branching, and `POST /v1/projects/{id}/sql`. There are no scopes, no
-per-operator identities, and no audit trail of who used it.
+`PWRAP_BOOTSTRAP_TOKEN` is the root credential, and its sole remaining power is
+issuing, listing and revoking scoped admin tokens under `/v1/admin/tokens`. It
+is rejected on every other management endpoint, so a leaked deployment secret no
+longer hands over the whole management API.
 
-Never expose the pwrapd management surface to the public internet. If the token
-is empty, `AdminOnly` refuses every request rather than defaulting open.
+Management calls carry a scoped token (`pwa_…`) instead, granting one or more of:
+
+| Scope | Covers |
+|---|---|
+| `projects` | create, list, delete and branch projects |
+| `keys` | issue, list and revoke project API keys |
+| `migrate` | apply tenant migrations and read their status |
+| `sql` | the arbitrary-SQL escape hatch |
+
+`sql` is separate on purpose: it executes anything as the tenant role, so it is
+the capability most worth withholding. Grant the narrowest set that does the job
+— a CI pipeline that only runs migrations needs `migrate`, nothing more.
+
+Tokens are stored the same way as project API keys: argon2id hash, an
+8-character lookup prefix in the clear, plaintext shown once at issue. Revocation
+takes effect on the next request.
+
+Mint one with `pwrap admin token issue --scopes migrate`, then export it as
+`PWRAP_ADMIN_TOKEN`.
+
+Never expose the pwrapd management surface to the public internet. If the
+bootstrap token is empty, `AdminOnly` refuses every request rather than
+defaulting open.
+
+### Admin actions are audited
+
+Every mutating management request writes a row to `admin_audit_log`: the acting
+token's prefix and name, the route, the project, and the resulting status.
+Refusals are recorded too — a run of denials is exactly what an investigation
+wants to see. Reads are skipped so the trail is not drowned in list calls.
+
+The table stores the token *prefix*, never the token, so the log identifies the
+actor without being worth stealing. Nothing prunes it yet; on a busy deployment
+it grows without bound.
 
 ### `/v1/projects/{id}/sql` executes arbitrary SQL by design
 
@@ -78,7 +110,8 @@ client.
 - **API keys** are `pwk_` + 32 random bytes (base64url), stored as argon2id
   hashes. Only an 8-character lookup prefix is stored in the clear. Plaintext is
   returned exactly once, at issue time.
-- **Admin token comparison** is constant-time (`crypto/subtle`).
+- **Bootstrap token comparison** is constant-time (`crypto/subtle`); scoped
+  admin tokens are verified by argon2id, like project API keys.
 - **Credentials at rest**: `projects.pg_password` is encrypted with AES-256-GCM
   under an operator-supplied `PWRAP_ENCRYPTION_KEY`, in a versioned envelope
   (`v1:<base64>`) so the algorithm can be rotated. Legacy plaintext rows are

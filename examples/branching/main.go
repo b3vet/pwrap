@@ -36,7 +36,7 @@ func main() {
 
 func run(ctx context.Context) error {
 	controlURL := envOr("PWRAP_CONTROL_URL", "http://localhost:8080")
-	adminToken := os.Getenv("PWRAP_BOOTSTRAP_TOKEN")
+	adminToken := envOr("PWRAP_ADMIN_TOKEN", os.Getenv("PWRAP_BOOTSTRAP_TOKEN"))
 	if adminToken == "" {
 		return errors.New("PWRAP_BOOTSTRAP_TOKEN required")
 	}

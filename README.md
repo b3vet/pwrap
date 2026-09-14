@@ -11,7 +11,7 @@ An opinionated, all-in-one Postgres backend. One tool that gives a new project t
 - **Durable queue** (`SELECT … FOR UPDATE SKIP LOCKED`) via [River](https://github.com/riverqueue/river) — retries, DLQ, visibility
 - **Vector search** via [pgvector](https://github.com/pgvector/pgvector) + HNSW (1536-dim)
 - **Migrations** applied per-project (baseline + River schema)
-- **Control plane** (`pwrapd`): projects, argon2id API keys, scoped DSN handoff
+- **Control plane** (`pwrapd`): projects, argon2id API keys, scoped admin tokens with an audit trail, short-lived DSN handoff
 - **SDKs**: Go and TypeScript
 
 **Track A (M7–M9):**
@@ -68,7 +68,10 @@ export PWRAP_DATABASE_URL="postgres://pwrap:pwrap@localhost:5432/pwrap?sslmode=d
 export PWRAP_BOOTSTRAP_TOKEN="dev-admin"
 ./bin/pwrapd
 
-# 4. Poke it (in another shell)
+# 4. Mint a scoped admin token (the bootstrap token can only do this)
+export PWRAP_ADMIN_TOKEN="$(./bin/pwrap admin token issue --scopes projects,keys,migrate,sql --name dev | head -1 | cut -d' ' -f2)"
+
+# 5. Poke it (in another shell)
 ./bin/pwrap project create --name hello
 ./bin/pwrap migrate apply --project <id>
 ./bin/pwrap key issue --project <id> --name my-app
@@ -235,7 +238,6 @@ const c = await PwrapClient.connect({
 ## Roadmap
 
 - **SDK parity** — `withUser` and `matview` in TypeScript; `subscribe` and `matview` in Python.
-- **Scoped admin credentials** — replace the single `PWRAP_BOOTSTRAP_TOKEN` with scoped tokens and an audit trail.
 - **Declarative typed-schema API** — define tables in the SDK instead of via `sql apply`.
 - **Hosted SaaS console.**
 

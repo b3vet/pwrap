@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 CONTROL_URL = os.environ.get("PWRAP_CONTROL_URL", "http://localhost:8080")
-ADMIN_TOKEN = os.environ.get("PWRAP_BOOTSTRAP_TOKEN", "dev-admin")
+ADMIN_TOKEN = os.environ.get("PWRAP_ADMIN_TOKEN") or os.environ.get("PWRAP_BOOTSTRAP_TOKEN", "dev-admin")
 
 
 def _pwrapd_reachable() -> bool:

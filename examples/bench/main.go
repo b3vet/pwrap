@@ -40,7 +40,7 @@ func run(ctx context.Context) error {
 	n := intEnv("BENCH_N", 5000)
 	qn := intEnv("BENCH_QUERIES", 100)
 
-	adminToken := os.Getenv("PWRAP_BOOTSTRAP_TOKEN")
+	adminToken := envOr("PWRAP_ADMIN_TOKEN", os.Getenv("PWRAP_BOOTSTRAP_TOKEN"))
 	if adminToken == "" {
 		return errors.New("PWRAP_BOOTSTRAP_TOKEN required")
 	}

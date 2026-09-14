@@ -14,6 +14,7 @@ import (
 
 	"github.com/b3vet/pwrap/internal/auth"
 	"github.com/b3vet/pwrap/internal/config"
+	"github.com/b3vet/pwrap/internal/controlplane/admintokens"
 	"github.com/b3vet/pwrap/internal/controlplane/authjwt"
 	"github.com/b3vet/pwrap/internal/controlplane/branches"
 	"github.com/b3vet/pwrap/internal/controlplane/keys"
@@ -27,15 +28,16 @@ import (
 )
 
 type Server struct {
-	logger     *slog.Logger
-	pool       *pgxpool.Pool
-	cfg        config.Config
-	projects   *projects.Service
-	keys       *keys.Service
-	tenancy    *tenancy.Service
-	migrations *migrations.Runner
-	signer     *authjwt.Signer // nil when REST disabled
-	hub        *realtime.Hub   // shared across all tenants for the realtime path
+	logger      *slog.Logger
+	pool        *pgxpool.Pool
+	cfg         config.Config
+	projects    *projects.Service
+	keys        *keys.Service
+	adminTokens *admintokens.Service
+	tenancy     *tenancy.Service
+	migrations  *migrations.Runner
+	signer      *authjwt.Signer // nil when REST disabled
+	hub         *realtime.Hub   // shared across all tenants for the realtime path
 
 	// connectionLimiter rate-limits /v1/connection and /v1/rest/token per API-key
 	// prefix. /connection is the only true hot endpoint pwrapd exposes (called on
@@ -58,6 +60,7 @@ func NewServer(logger *slog.Logger, pool *pgxpool.Pool, cfg config.Config) *Serv
 		logger.Warn("encryption-at-rest disabled — pg_password stored in cleartext", "err", err)
 	}
 	ks := keys.NewService(pool)
+	ats := admintokens.NewService(pool)
 	ts := tenancy.NewService(ps, cfg, pool)
 	mr := migrations.NewRunner(pool, ps, cfg)
 
@@ -91,6 +94,7 @@ func NewServer(logger *slog.Logger, pool *pgxpool.Pool, cfg config.Config) *Serv
 		cfg:               cfg,
 		projects:          ps,
 		keys:              ks,
+		adminTokens:       ats,
 		tenancy:           ts,
 		migrations:        mr,
 		signer:            signer,
@@ -128,14 +132,39 @@ func (s *Server) Router() http.Handler {
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/readyz", s.handleReadyz)
 
-		// Management endpoints — admin bootstrap token required.
+		// Token management — the bootstrap token's only remaining power.
+		// Deliberately not scope-guarded: a scoped token must not be able to
+		// widen its own privileges by issuing itself a better one.
 		r.Group(func(r chi.Router) {
+			r.Use(admintokens.Audit(s.pool, s.logger))
 			r.Use(auth.AdminOnly(s.cfg.BootstrapToken))
+			admintokens.NewHandler(s.adminTokens).Routes(r)
+		})
+
+		// Management endpoints — a scoped admin token, not the bootstrap token.
+		// Each group asks for the narrowest scope that covers it, so an operator
+		// can grant migrations without also granting arbitrary SQL execution.
+		scoped := func(scope admintokens.Scope, mount func(chi.Router)) {
+			r.Group(func(r chi.Router) {
+				// Audit first, so it wraps the scope check and still records a
+				// request that check refuses.
+				r.Use(admintokens.Audit(s.pool, s.logger))
+				r.Use(admintokens.RequireScope(s.adminTokens, scope))
+				mount(r)
+			})
+		}
+		scoped(admintokens.ScopeProjects, func(r chi.Router) {
 			projects.NewHandler(s.projects).Routes(r)
-			keys.NewHandler(s.keys).Routes(r)
-			migrations.NewHandler(s.migrations).Routes(r)
-			sqlapply.NewHandler(s.projects, s.cfg).Routes(r)
 			branches.NewHandler(branches.NewService(s.pool, s.projects, s.migrations)).Routes(r)
+		})
+		scoped(admintokens.ScopeKeys, func(r chi.Router) {
+			keys.NewHandler(s.keys).Routes(r)
+		})
+		scoped(admintokens.ScopeMigrate, func(r chi.Router) {
+			migrations.NewHandler(s.migrations).Routes(r)
+		})
+		scoped(admintokens.ScopeSQL, func(r chi.Router) {
+			sqlapply.NewHandler(s.projects, s.cfg).Routes(r)
 		})
 
 		// SDK bootstrap + REST token issuance — project API key required.

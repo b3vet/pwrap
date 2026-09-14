@@ -5,7 +5,7 @@ Runs the scenarios listed for "py" in conformance/scenarios.json against a live
 pwrapd and writes report-py.json, which conformance/check.py then gates on.
 
   PWRAP_CONTROL_URL      default http://localhost:8080
-  PWRAP_BOOTSTRAP_TOKEN  default dev-admin
+  PWRAP_ADMIN_TOKEN      scoped admin token (the bootstrap token only mints these)
   PWRAP_REPORT_DIR       where to write report-py.json (default: cwd)
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ import httpx
 from pwrap import PwrapClient, VECTOR_DIM
 
 CONTROL_URL = os.environ.get("PWRAP_CONTROL_URL", "http://localhost:8080")
-ADMIN_TOKEN = os.environ.get("PWRAP_BOOTSTRAP_TOKEN", "dev-admin")
+ADMIN_TOKEN = os.environ.get("PWRAP_ADMIN_TOKEN") or os.environ.get("PWRAP_BOOTSTRAP_TOKEN", "dev-admin")
 REPORT_DIR = pathlib.Path(os.environ.get("PWRAP_REPORT_DIR", "."))
 
 

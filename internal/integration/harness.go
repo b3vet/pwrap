@@ -9,10 +9,13 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"time"
@@ -25,6 +28,7 @@ import (
 
 	"github.com/b3vet/pwrap/internal/config"
 	"github.com/b3vet/pwrap/internal/controlplane"
+	"github.com/b3vet/pwrap/internal/controlplane/admintokens"
 	"github.com/b3vet/pwrap/internal/controlplane/authsetup"
 	"github.com/b3vet/pwrap/internal/controlplane/migrations"
 	cpmigrations "github.com/b3vet/pwrap/migrations/controlplane"
@@ -78,7 +82,7 @@ type Stack struct {
 // only start once EnsureRoles has created that role. docker-compose papers over
 // the same race with `restart: unless-stopped`; here we simply start it last.
 func NewStack(ctx context.Context) (_ *Stack, err error) {
-	s := &Stack{AdminToken: adminToken}
+	s := &Stack{}
 	// Tear down whatever came up before the failure, so a mid-setup error
 	// doesn't strand containers.
 	defer func() {
@@ -147,7 +151,49 @@ func NewStack(ctx context.Context) (_ *Stack, err error) {
 	s.httpServer = httptest.NewServer(s.server.Router())
 	s.ControlURL = s.httpServer.URL
 
+	// The bootstrap token now only mints admin tokens, so the suite mints one
+	// carrying every scope and uses that. Tests keep reading Stack.AdminToken
+	// and are unaffected by the change in what it holds.
+	if err = s.mintAdminToken(ctx); err != nil {
+		return nil, err
+	}
+
 	return s, nil
+}
+
+// mintAdminToken exchanges the bootstrap token for a full-scope admin token.
+func (s *Stack) mintAdminToken(ctx context.Context) error {
+	body, err := json.Marshal(map[string]any{
+		"name":   "integration",
+		"scopes": admintokens.Strings(admintokens.All),
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.ControlURL+"/v1/admin/tokens", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("mint admin token: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("mint admin token: %s %s", resp.Status, bytes.TrimSpace(b))
+	}
+	var out struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	s.AdminToken = out.Token
+	return nil
 }
 
 // startPostgREST brings up the sidecar on the shared network and records its

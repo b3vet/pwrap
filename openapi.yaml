@@ -9,8 +9,13 @@ info:
 
     Two auth surfaces:
 
-    - **Admin** (`PWRAP_BOOTSTRAP_TOKEN`) — project/key/migration/SQL/branch
-      management. A single shared credential; treat it as a root password.
+    - **Bootstrap** (`PWRAP_BOOTSTRAP_TOKEN`) — root credential. Its only power
+      is minting scoped admin tokens at `/v1/admin/tokens`; it is rejected on
+      every other endpoint.
+    - **Scoped admin token** (`pwa_…`) — management calls. Carries some of
+      `projects`, `keys`, `migrate`, `sql`; each endpoint names the scope it
+      needs. `sql` is separable because it executes arbitrary SQL as the tenant
+      role.
     - **Project API key** (`pwk_…`) — the SDK surface. Exchanged at
       `/v1/connection` for a Postgres DSN, which the SDK then uses to talk to
       Postgres directly.
@@ -49,6 +54,56 @@ paths:
               schema:
                 $ref: "#/components/schemas/Health"
 
+  /v1/admin/tokens:
+    post:
+      summary: Mint a scoped admin token
+      description: |
+        Authenticated with the bootstrap token — a scoped token cannot mint, so
+        it cannot widen its own privileges. The plaintext is returned once and is
+        not recoverable afterwards.
+      security: [{ BootstrapBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scopes]
+              properties:
+                name: { type: string, description: "human label, shown in the audit log" }
+                scopes:
+                  type: array
+                  items: { type: string, enum: [projects, keys, migrate, sql] }
+                  minItems: 1
+                ttl_seconds: { type: integer, description: "0 or omitted = no expiry" }
+      responses:
+        "201": { description: issued, content: { application/json: { schema: { $ref: "#/components/schemas/IssuedAdminToken" } } } }
+        "400": { description: "no scopes given, or an unknown scope" }
+        "401": { description: missing or invalid bootstrap token }
+    get:
+      summary: List admin tokens (metadata only)
+      security: [{ BootstrapBearer: [] }]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AdminToken" }
+
+  /v1/admin/tokens/{tokenID}:
+    parameters:
+      - { in: path, name: tokenID, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke an admin token
+      description: Takes effect on the token's next request.
+      security: [{ BootstrapBearer: [] }]
+      responses:
+        "204": { description: revoked }
+        "400": { description: bad token id }
+        "404": { description: not found }
+
   /v1/projects:
     post:
       summary: Create project
@@ -68,6 +123,7 @@ paths:
         "409": { description: already exists }
     get:
       summary: List projects
+      description: Requires the `projects` scope.
       security: [{ AdminBearer: [] }]
       responses:
         "200":
@@ -83,12 +139,14 @@ paths:
       - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
     get:
       summary: Get project
+      description: Requires the `projects` scope.
       security: [{ AdminBearer: [] }]
       responses:
         "200": { description: ok, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
         "404": { description: not found }
     delete:
       summary: Delete project (soft + drop role/schema)
+      description: Requires the `projects` scope.
       security: [{ AdminBearer: [] }]
       responses:
         "204": { description: deleted }
@@ -99,6 +157,7 @@ paths:
       - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
     post:
       summary: Issue API key (plaintext returned once)
+      description: Requires the `keys` scope.
       security: [{ AdminBearer: [] }]
       requestBody:
         content:
@@ -110,6 +169,7 @@ paths:
         "201": { description: issued, content: { application/json: { schema: { $ref: "#/components/schemas/IssuedKey" } } } }
     get:
       summary: List API keys
+      description: Requires the `keys` scope.
       security: [{ AdminBearer: [] }]
       responses:
         "200":
@@ -127,6 +187,8 @@ paths:
     delete:
       summary: Revoke API key
       description: |
+        Requires the `keys` scope.
+
         Revokes the key for future `/v1/connection` and `/v1/rest/token` calls.
         **Does not revoke a DSN that was already issued** — see the note on
         `/v1/connection`.
@@ -141,6 +203,8 @@ paths:
     post:
       summary: Apply pending tenant migrations
       description: |
+        Requires the `migrate` scope.
+
         Applies the embedded baseline (pwrap built-in tables, River queue schema)
         to the project's schema. Idempotent — re-running is a no-op when current.
       security: [{ AdminBearer: [] }]
@@ -150,6 +214,7 @@ paths:
         "500": { description: migration failed (a failed row is still written to the log) }
     get:
       summary: Migration status
+      description: Requires the `migrate` scope.
       security: [{ AdminBearer: [] }]
       responses:
         "200": { description: ok, content: { application/json: { schema: { $ref: "#/components/schemas/MigrationStatus" } } } }
@@ -161,6 +226,8 @@ paths:
     post:
       summary: Apply user-supplied SQL as the tenant role
       description: |
+        Requires the `sql` scope.
+
         Escape hatch for creating real (non-JSONB) tables that PostgREST can
         expose. The request body is raw SQL, **not** JSON, executed as one
         transaction as the tenant role.
@@ -184,6 +251,8 @@ paths:
     post:
       summary: Branch a project
       description: |
+        Requires the `projects` scope.
+
         Creates a child project with its own role, schema and baseline
         migrations, linked to the parent via `parent_project_id`. With
         `with_data: true`, rows from the parent's built-in tables are copied.
@@ -209,6 +278,7 @@ paths:
         "409": { description: branch name already taken }
     get:
       summary: List direct branches of a project (one level deep)
+      description: Requires the `projects` scope.
       security: [{ AdminBearer: [] }]
       responses:
         "200":
@@ -226,6 +296,8 @@ paths:
     post:
       summary: Re-copy parent data into an existing branch
       description: |
+        Requires the `projects` scope.
+
         Idempotent merge (`ON CONFLICT DO NOTHING`). Called on the child project.
         Fails if the project has no parent.
       security: [{ AdminBearer: [] }]
@@ -320,10 +392,18 @@ paths:
 
 components:
   securitySchemes:
+    BootstrapBearer:
+      type: http
+      scheme: bearer
+      description: >-
+        PWRAP_BOOTSTRAP_TOKEN. Root credential, accepted ONLY on /v1/admin/tokens.
+        Rejected everywhere else.
     AdminBearer:
       type: http
       scheme: bearer
-      description: "PWRAP_BOOTSTRAP_TOKEN"
+      description: >-
+        A scoped admin token (`pwa_…`) minted via POST /v1/admin/tokens. Each
+        endpoint requires a specific scope; see its description.
     APIKeyBearer:
       type: http
       scheme: bearer
@@ -357,6 +437,26 @@ components:
         expires_at:   { type: string, format: date-time, nullable: true }
         created_at:   { type: string, format: date-time }
         revoked_at:   { type: string, format: date-time, nullable: true }
+    AdminToken:
+      type: object
+      properties:
+        id:           { type: string, format: uuid }
+        prefix:       { type: string, description: "8-char lookup prefix; also what the audit log records" }
+        name:         { type: string }
+        scopes:
+          type: array
+          items: { type: string, enum: [projects, keys, migrate, sql] }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        expires_at:   { type: string, format: date-time, nullable: true }
+        revoked_at:   { type: string, format: date-time, nullable: true }
+        created_at:   { type: string, format: date-time }
+    IssuedAdminToken:
+      allOf:
+        - $ref: "#/components/schemas/AdminToken"
+        - type: object
+          required: [token]
+          properties:
+            token: { type: string, description: "plaintext (pwa_…), returned once" }
     IssuedKey:
       allOf:
         - $ref: "#/components/schemas/APIKey"

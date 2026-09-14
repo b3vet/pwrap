@@ -85,5 +85,10 @@ if docker compose ps -a --services 2>/dev/null | grep -qx postgrest; then
   fi
 fi
 
+# The bootstrap token only mints admin tokens now, so the demos need a scoped
+# one. Full scope, because a demo exercises every management surface.
+PWRAP_ADMIN_TOKEN="$(bash scripts/mint-admin-token.sh)"
+export PWRAP_ADMIN_TOKEN
+
 # Which example binary to run. Default: todo-plus. Pass "rls-notes" for Track A demo.
 "./bin/${1:-todo-plus}"

@@ -42,6 +42,8 @@ func main() {
 		err = runSQL(args)
 	case "branch":
 		err = runBranch(args)
+	case "admin":
+		err = runAdmin(args)
 	case "neon":
 		err = runNeon(args)
 	case "help", "-h", "--help":
@@ -75,6 +77,9 @@ usage:
   pwrap branch create  --project ID --name NAME [--with-data]
   pwrap branch list    --project ID
   pwrap branch sync    --project ID [--truncate] [--tables a,b,c]
+  pwrap admin token issue  --scopes projects,keys,migrate,sql [--name NAME] [--ttl SECONDS]
+  pwrap admin token list
+  pwrap admin token revoke TOKEN_ID
   pwrap neon branch create --neon-project NEON_PROJ --name NAME [--parent BRANCH_ID]
   pwrap neon branch delete --neon-project NEON_PROJ --branch BRANCH_ID
   pwrap neon branch list   --neon-project NEON_PROJ
@@ -83,7 +88,8 @@ usage:
 env:
   PWRAP_NEON_API_KEY      required for "pwrap neon ..." subcommands
   PWRAP_CONTROL_URL       default http://localhost:8080
-  PWRAP_BOOTSTRAP_TOKEN   required for project/key subcommands`)
+  PWRAP_ADMIN_TOKEN       scoped token, required for project/key/migrate/sql subcommands
+  PWRAP_BOOTSTRAP_TOKEN   root credential; only mints admin tokens (pwrap admin token ...)`)
 }
 
 // --- transport -----------------------------------------------------------------
@@ -102,9 +108,30 @@ func newClient(requireToken bool) (*client, error) {
 	if _, err := url.Parse(base); err != nil {
 		return nil, fmt.Errorf("bad PWRAP_CONTROL_URL: %w", err)
 	}
-	tok := os.Getenv("PWRAP_BOOTSTRAP_TOKEN")
+	// Management calls now need a scoped admin token; the bootstrap token can
+	// only mint one. Mint with `pwrap admin token issue`, then export
+	// PWRAP_ADMIN_TOKEN.
+	tok := os.Getenv("PWRAP_ADMIN_TOKEN")
 	if requireToken && tok == "" {
-		return nil, errors.New("PWRAP_BOOTSTRAP_TOKEN is required")
+		return nil, errors.New("PWRAP_ADMIN_TOKEN is required — mint one with `pwrap admin token issue --scopes ...` using PWRAP_BOOTSTRAP_TOKEN")
+	}
+	return &client{
+		base:  strings.TrimRight(base, "/"),
+		token: tok,
+		http:  &http.Client{Timeout: 15 * time.Second},
+	}, nil
+}
+
+// bootstrapClient talks to /v1/admin/tokens, the only surface the bootstrap
+// token still opens.
+func bootstrapClient() (*client, error) {
+	base := os.Getenv("PWRAP_CONTROL_URL")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	tok := os.Getenv("PWRAP_BOOTSTRAP_TOKEN")
+	if tok == "" {
+		return nil, errors.New("PWRAP_BOOTSTRAP_TOKEN is required to manage admin tokens")
 	}
 	return &client{
 		base:  strings.TrimRight(base, "/"),
@@ -506,4 +533,71 @@ func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+// --- admin tokens --------------------------------------------------------------
+
+// runAdmin manages the scoped tokens every other management subcommand needs.
+// These calls use PWRAP_BOOTSTRAP_TOKEN, which can do nothing else.
+func runAdmin(args []string) error {
+	if len(args) == 0 || args[0] != "token" {
+		return errors.New("usage: pwrap admin token issue|list|revoke")
+	}
+	rest := args[1:]
+	if len(rest) == 0 {
+		return errors.New("usage: pwrap admin token issue|list|revoke")
+	}
+	c, err := bootstrapClient()
+	if err != nil {
+		return err
+	}
+	switch rest[0] {
+	case "issue":
+		fs := flag.NewFlagSet("admin token issue", flag.ExitOnError)
+		name := fs.String("name", "", "human label for the token")
+		scopes := fs.String("scopes", "", "comma-separated: projects,keys,migrate,sql")
+		ttl := fs.Int("ttl", 0, "seconds until expiry (0 = no expiry)")
+		if err := fs.Parse(rest[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*scopes) == "" {
+			return errors.New("--scopes is required (projects, keys, migrate, sql)")
+		}
+		body := map[string]any{
+			"name":   *name,
+			"scopes": strings.Split(*scopes, ","),
+		}
+		if *ttl > 0 {
+			body["ttl_seconds"] = *ttl
+		}
+		var out map[string]any
+		if err := c.do(http.MethodPost, "/v1/admin/tokens", body, &out); err != nil {
+			return err
+		}
+		// The secret is shown once and never recoverable, so say so plainly
+		// rather than letting it scroll past as one field among many.
+		fmt.Printf("token: %v\n", out["token"])
+		fmt.Printf("id:    %v\n", out["id"])
+		fmt.Printf("scopes: %v\n", out["scopes"])
+		fmt.Fprintln(os.Stderr, "\nStore it now — it cannot be shown again. Export as PWRAP_ADMIN_TOKEN.")
+		return nil
+	case "list":
+		var out any
+		if err := c.do(http.MethodGet, "/v1/admin/tokens", nil, &out); err != nil {
+			return err
+		}
+		printJSON(out)
+		return nil
+	case "revoke":
+		if len(rest) < 2 {
+			return errors.New("usage: pwrap admin token revoke TOKEN_ID")
+		}
+		if err := c.do(http.MethodDelete, "/v1/admin/tokens/"+rest[1], nil, nil); err != nil {
+			return err
+		}
+		fmt.Println("revoked")
+		return nil
+	default:
+		return fmt.Errorf("unknown admin token subcommand %q", rest[0])
+	}
 }

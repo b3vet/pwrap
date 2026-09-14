@@ -82,3 +82,53 @@ CREATE INDEX IF NOT EXISTS ephemeral_roles_expires_at_idx
 -- Dropping a project's roles is a per-project operation.
 CREATE INDEX IF NOT EXISTS ephemeral_roles_project_id_idx
     ON ephemeral_roles (project_id);
+
+-- Scoped admin tokens.
+--
+-- PWRAP_BOOTSTRAP_TOKEN is reduced to a root credential whose only job is
+-- minting these; every other management endpoint requires a token from this
+-- table. Storage mirrors api_keys deliberately — argon2id hash, an 8-character
+-- lookup prefix in the clear, plaintext returned once at issue — so there is one
+-- credential implementation to review rather than two.
+CREATE TABLE IF NOT EXISTS admin_tokens (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    prefix       TEXT        NOT NULL UNIQUE,
+    token_hash   TEXT        NOT NULL,
+    name         TEXT        NOT NULL DEFAULT '',
+    -- Coarse capabilities: projects, keys, migrate, sql. `sql` is separable on
+    -- purpose — it runs arbitrary SQL as the tenant role, so it is the one
+    -- capability most worth withholding.
+    scopes       TEXT[]      NOT NULL DEFAULT '{}',
+    last_used_at TIMESTAMPTZ,
+    expires_at   TIMESTAMPTZ,
+    revoked_at   TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS admin_tokens_revoked_at_idx
+    ON admin_tokens (revoked_at);
+
+-- Audit trail for mutating admin calls.
+--
+-- Records the token prefix rather than the token: enough to identify the actor
+-- and correlate with admin_tokens, useless to anyone who reads the table. Rows
+-- are written whether the call succeeded or was refused, since a run of denials
+-- is exactly what an investigation wants to see.
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id            BIGSERIAL   PRIMARY KEY,
+    token_prefix  TEXT,
+    token_name    TEXT,
+    action        TEXT        NOT NULL,
+    method        TEXT        NOT NULL,
+    path          TEXT        NOT NULL,
+    project_id    UUID,
+    status        INTEGER     NOT NULL,
+    error         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx
+    ON admin_audit_log (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS admin_audit_log_token_prefix_idx
+    ON admin_audit_log (token_prefix, created_at DESC);

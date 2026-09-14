@@ -5,7 +5,7 @@
 // Each scenario provisions its own project so a failure can't cascade.
 //
 //	PWRAP_CONTROL_URL      default http://localhost:8080
-//	PWRAP_BOOTSTRAP_TOKEN  default dev-admin
+//	PWRAP_ADMIN_TOKEN      scoped admin token (the bootstrap token only mints these)
 //	PWRAP_REPORT_DIR       where to write report-go.json (default: cwd)
 package main
 
@@ -31,7 +31,7 @@ import (
 
 var (
 	controlURL = envOr("PWRAP_CONTROL_URL", "http://localhost:8080")
-	adminToken = envOr("PWRAP_BOOTSTRAP_TOKEN", "dev-admin")
+	adminToken = envOr("PWRAP_ADMIN_TOKEN", envOr("PWRAP_BOOTSTRAP_TOKEN", "dev-admin"))
 )
 
 func main() {

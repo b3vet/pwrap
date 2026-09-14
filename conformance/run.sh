@@ -139,6 +139,11 @@ if ! curl -sf "$PWRAP_REST_URL/" >/dev/null 2>&1; then
   exit 1
 fi
 
+# The bootstrap token only mints admin tokens now; everything else needs a
+# scoped one. Full scope here because the harness drives every surface.
+PWRAP_ADMIN_TOKEN="$(bash scripts/mint-admin-token.sh)"
+export PWRAP_ADMIN_TOKEN
+
 # --- runners -----------------------------------------------------------------
 
 # A runner failure must not stop the others: a partial report is still useful,

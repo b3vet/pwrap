@@ -3,7 +3,7 @@
 // report-ts.json, which conformance/check.py then gates on.
 //
 //   PWRAP_CONTROL_URL      default http://localhost:8080
-//   PWRAP_BOOTSTRAP_TOKEN  default dev-admin
+//   PWRAP_ADMIN_TOKEN      scoped admin token (the bootstrap token only mints these)
 //   PWRAP_REPORT_DIR       where to write report-ts.json (default: cwd)
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { PwrapClient, VectorDim } from "@pwrap/sdk";
 
 const CONTROL_URL = process.env.PWRAP_CONTROL_URL ?? "http://localhost:8080";
-const ADMIN_TOKEN = process.env.PWRAP_BOOTSTRAP_TOKEN ?? "dev-admin";
+const ADMIN_TOKEN = process.env.PWRAP_ADMIN_TOKEN ?? process.env.PWRAP_BOOTSTRAP_TOKEN ?? "dev-admin";
 const REPORT_DIR = process.env.PWRAP_REPORT_DIR ?? ".";
 
 // Mirrors the Go and Python runners exactly, so all three are compared on

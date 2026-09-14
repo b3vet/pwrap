@@ -36,10 +36,15 @@ cleanup() {
 trap cleanup EXIT
 until curl -sf "$PWRAP_CONTROL_URL/v1/readyz" >/dev/null 2>&1; do sleep 1; done
 
-PID=$(curl -s -X POST -H "Authorization: Bearer dev-admin" -H 'Content-Type: application/json' \
+# The bootstrap token only mints admin tokens now; everything else needs a
+# scoped one. Full scope here because the harness drives every surface.
+PWRAP_ADMIN_TOKEN="$(bash scripts/mint-admin-token.sh)"
+export PWRAP_ADMIN_TOKEN
+
+PID=$(curl -s -X POST -H "Authorization: Bearer $PWRAP_ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"refresh-check"}' "$PWRAP_CONTROL_URL/v1/projects" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
-curl -sf -X POST -H "Authorization: Bearer dev-admin" "$PWRAP_CONTROL_URL/v1/projects/$PID/migrations" >/dev/null
-curl -s -X POST -H "Authorization: Bearer dev-admin" -H 'Content-Type: application/json' \
+curl -sf -X POST -H "Authorization: Bearer $PWRAP_ADMIN_TOKEN" "$PWRAP_CONTROL_URL/v1/projects/$PID/migrations" >/dev/null
+curl -s -X POST -H "Authorization: Bearer $PWRAP_ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"refresh"}' "$PWRAP_CONTROL_URL/v1/projects/$PID/keys" \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["key"])' > /tmp/refresh-key.txt
 
