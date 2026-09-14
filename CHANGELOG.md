@@ -8,6 +8,88 @@ While the version is `0.x`, the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-14
+
+**Two breaking changes.** Both are deliberate and both need action — see
+*Migrating* below before upgrading.
+
+### Breaking
+
+- **The bootstrap token no longer authenticates the management API.**
+  `PWRAP_BOOTSTRAP_TOKEN` is now the root credential, and its only power is
+  minting scoped admin tokens. Every other `/v1` endpoint requires one of those
+  instead. Existing automation that sends the bootstrap token to
+  `/v1/projects`, `/v1/projects/{id}/keys`, `/v1/projects/{id}/migrations` or
+  `/v1/projects/{id}/sql` will receive `401`.
+- **DSN credentials now really expire.** `/v1/connection` mints a Postgres role
+  with `VALID UNTIL` set to the TTL (one hour by default). SDK versions 0.1.x
+  cache the DSN and never re-exchange, so they stop working an hour after
+  connecting to a 0.2.0 server. 0.2.0 SDKs refresh automatically.
+
+### Migrating
+
+1. Mint an admin token and use it wherever the bootstrap token used to go:
+
+   ```bash
+   export PWRAP_BOOTSTRAP_TOKEN=...              # as before
+   pwrap admin token issue --scopes projects,keys,migrate,sql --name ci
+   export PWRAP_ADMIN_TOKEN=pwa_...              # printed once, not recoverable
+   ```
+
+   Grant the narrowest set that does the job. A pipeline that only runs
+   migrations wants `--scopes migrate`, not all four.
+
+2. Upgrade every SDK to 0.2.0 at the same time as the server. There is no
+   compatibility window: a 0.1.x client connected to a 0.2.0 server works until
+   its first credential expires, then fails to reconnect. Raising
+   `PWRAP_DSN_TTL_SECONDS` buys time but does not fix it.
+
+### Added
+
+- **Rotating DSN credentials.** Each `/v1/connection` exchange creates its own
+  login role inheriting the tenant role, with a server-enforced `VALID UNTIL`.
+  A leaked DSN now stops working on its own, and one client's credential can be
+  revoked without touching anyone else's. TTL via `PWRAP_DSN_TTL_SECONDS`.
+  pwrapd sweeps expired roles.
+- **SDK credential refresh** in Go, TypeScript and Python: re-exchange before
+  expiry, swap the pool, close the old one after a grace period. A failed
+  attempt keeps the current connection and retries.
+- **Scoped admin tokens** (`pwa_…`) with four coarse scopes — `projects`,
+  `keys`, `migrate`, `sql` — stored as argon2id hashes like project API keys.
+  Managed with `pwrap admin token issue|list|revoke`.
+- **Admin audit log.** Every mutating management call writes to
+  `admin_audit_log`: acting token prefix and name, route, project, status.
+  Refusals are recorded; reads are not.
+
+### Changed
+
+- The TypeScript SDK builds on TypeScript 7. Declarations are emitted by `tsc`
+  rather than tsup's bundled plugin, so they cannot fall behind the compiler
+  again.
+
+### Fixed
+
+- **CommonJS consumers get usable types.** Present in 0.1.0 and 0.1.1: the
+  package is `"type": "module"`, so TypeScript read its `.d.ts` as ESM and a CJS
+  consumer under `node16` hit TS1479 despite `dist/index.cjs` working at
+  runtime. `.d.cts` files are now generated and the exports map carries
+  per-condition types.
+- The `rls-notes` demo was flaky in CI — PostgREST authenticates as a role
+  pwrapd creates at startup, so a sidecar started first sat in a failed-auth
+  retry loop that outlasted the demo.
+
+### Known limitations
+
+- `admin_audit_log` has no retention policy and grows without bound.
+- Credential expiry bounds new connections, not open ones: Postgres checks
+  credentials at authentication, so an established session survives its role's
+  expiry. See [SECURITY.md](SECURITY.md).
+- Revoking an API key does not immediately kill DSNs it already minted; those
+  roles expire on their own schedule.
+- SDK parity: TypeScript lacks `withUser`; neither TypeScript nor Python has a
+  `matview` helper. Tracked in
+  [`conformance/scenarios.json`](conformance/scenarios.json).
+
 ## [0.1.1] - 2026-09-14
 
 Maintenance release. No API changes — the SDK surface is identical to 0.1.0.
@@ -130,6 +212,7 @@ First public release.
   [`conformance/scenarios.json`](conformance/scenarios.json) and printed on every
   conformance run.
 
-[Unreleased]: https://github.com/b3vet/pwrap/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/b3vet/pwrap/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/b3vet/pwrap/releases/tag/v0.2.0
 [0.1.1]: https://github.com/b3vet/pwrap/releases/tag/v0.1.1
 [0.1.0]: https://github.com/b3vet/pwrap/releases/tag/v0.1.0
