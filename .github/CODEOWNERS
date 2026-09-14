@@ -1,0 +1,22 @@
+# Code owners for pwrap.
+#
+# This file is required, not decorative. The `only-berke-push` ruleset on the
+# default branch sets require_code_owner_review, and without a CODEOWNERS file
+# there are no code owners — so that requirement can never be satisfied by a
+# review, and every pull request, including Dependabot's, is unmergeable except
+# by an admin bypass. A global owner restores normal review-and-merge.
+#
+# Last match wins, so keep the catch-all first and narrow rules below it.
+
+*       @b3vet
+
+# Release and CI plumbing: publishing credentials and the trusted-publisher
+# contract live here, so changes deserve a deliberate look.
+/.github/workflows/    @b3vet
+
+# Published SDK surface — anything here reaches users through npm, PyPI or the
+# Go module proxy, where a released version can never be taken back.
+/sdk/                  @b3vet
+
+# Tenant and control-plane SQL. Migrations are append-only once applied.
+/migrations/           @b3vet
