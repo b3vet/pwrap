@@ -6,7 +6,11 @@ export default defineConfig({
     neon: "src/neon.ts",
   },
   format: ["esm", "cjs"],
-  dts: true,
+  // Declarations come from `tsc -p tsconfig.build.json` instead: tsup's bundled
+  // rollup-plugin-dts is pinned at a version that breaks on newer TypeScript
+  // and cannot be overridden, because tsup inlines it rather than depending
+  // on it. See tsconfig.build.json.
+  dts: false,
   clean: true,
   sourcemap: true,
   target: "node18",

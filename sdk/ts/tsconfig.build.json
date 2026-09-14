@@ -1,0 +1,21 @@
+{
+  // Declaration-only pass. tsup handles the JS bundles; `tsc` handles types.
+  //
+  // tsup generates declarations with a bundled copy of rollup-plugin-dts, which
+  // reaches into TypeScript compiler internals and breaks on every TypeScript
+  // release it predates — it is pinned at 6.1.1 inside tsup and cannot be
+  // overridden, since tsup inlines it rather than depending on it. Emitting with
+  // tsc instead means the declarations are produced by the same compiler that
+  // type-checks them, so they cannot fall behind the TypeScript version.
+  //
+  // Output is one .d.ts per source file rather than a single bundled file. The
+  // exports map already points at ./dist/index.d.ts and ./dist/neon.d.ts, and
+  // the relative re-exports resolve alongside them, so consumers see no
+  // difference.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "declarationMap": true
+  },
+  "include": ["src/**/*"]
+}

@@ -1,7 +1,7 @@
 {
   "name": "@pwrap/sdk",
   "version": "0.1.1",
-  "description": "TypeScript SDK for pwrap — Postgres-backed all-in-one backend.",
+  "description": "TypeScript SDK for pwrap \u2014 Postgres-backed all-in-one backend.",
   "license": "Apache-2.0",
   "author": "Berke Ucvet",
   "homepage": "https://github.com/b3vet/pwrap#readme",
@@ -29,14 +29,24 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./neon": {
-      "types": "./dist/neon.d.ts",
-      "import": "./dist/neon.js",
-      "require": "./dist/neon.cjs"
+      "import": {
+        "types": "./dist/neon.d.ts",
+        "default": "./dist/neon.js"
+      },
+      "require": {
+        "types": "./dist/neon.d.cts",
+        "default": "./dist/neon.cjs"
+      }
     }
   },
   "files": [
@@ -48,7 +58,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json && node scripts/dts-cjs.mjs",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "node --test dist/*.test.js"
@@ -71,6 +81,6 @@
   "devDependencies": {
     "@types/node": "^26.1.2",
     "tsup": "^8.0.2",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
