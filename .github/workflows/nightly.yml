@@ -99,7 +99,7 @@ jobs:
           PWRAP_AUTHENTICATOR_PASSWORD: authpw-dev
           PWRAP_JWT_SECRET: super-dev-jwt-secret-please-change-me-32bytes
         run: bash scripts/e2e.sh bench | tee bench-results.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-results
