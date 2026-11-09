@@ -64,7 +64,7 @@
     "test": "node --test dist/*.test.js"
   },
   "dependencies": {
-    "postgres": "^3.4.4"
+    "postgres": "^4.1.0"
   },
   "peerDependencies": {
     "@neondatabase/serverless": "^0.10.0",
